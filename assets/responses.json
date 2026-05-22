@@ -1,0 +1,62 @@
+[
+    {
+        "id": 0,
+        "code": "9000",
+        "status": false,
+        "message": "Action failed. Please check if you're authenticated and have sufficient permissions."
+    },
+    {
+        "id": 1,
+        "code": "9001",
+        "status": true,
+        "message": "Operation successful."
+    },
+    {
+        "id": 2,
+        "code": "9002",
+        "status": false,
+        "message": "Invalid input provided. Please review and try again."
+    },
+    {
+        "id": 3,
+        "code": "9003",
+        "status": false,
+        "message": "Sorry! An error occurred while performing this action."
+    },
+    {
+        "id": 4,
+        "code": "9004",
+        "status": false,
+        "message": "Duplicate record, data already exists."
+    },
+    {
+        "id": 5,
+        "code": "9005",
+        "status": false,
+        "message": "Operation failed, please review and try again."
+    },
+    {
+        "id": 6,
+        "code": "9006",
+        "status": false,
+        "message": "Null argument, please provide required argument(s)."
+    },
+    {
+        "id": 7,
+        "code": "9007",
+        "status": true,
+        "message": "User created successfully! Email notification is sent for verification."
+    },
+    {
+        "id": 8,
+        "code": "9008",
+        "status": false,
+        "message": "Unauthorized, user profile not activated!"
+    },
+    {
+        "id": 9,
+        "code": "9009",
+        "status": false,
+        "message": "Record not found!"
+    }
+]

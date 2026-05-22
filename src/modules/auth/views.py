@@ -1,9 +1,16 @@
 from fastapi import APIRouter
 from src.modules.auth.models import User
+from src.shared.dtos import  ListResponse
+from fastapi import Query
+
+
+from typing import Annotated
+
+
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
-from .dtos import UserInputDTO
+from .dtos import UserFilterDTO, UserInputDTO
 from .services import AuthService
 
 
@@ -15,9 +22,9 @@ def register_user(user_data: UserInputDTO) -> User:
 
 
 @auth_router.get("/users")
-def get_all_users() -> list[User]:
+def get_all_users(params: Annotated[UserFilterDTO, Query()]) -> ListResponse[User]:
     auth_service = AuthService()
-    users = auth_service.get_all_users()
+    users = auth_service.get_all_users(params)
     return users
 
 
