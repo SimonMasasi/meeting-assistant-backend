@@ -14,5 +14,3 @@ class User(BaseModel, table=True):
     photo_url: str | None = Field(default=None)
 
 
-
-

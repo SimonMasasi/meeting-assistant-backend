@@ -1,0 +1,95 @@
+
+## Database Migrations
+
+Migrations are managed with [Alembic](https://alembic.sqlalchemy.org/). The `alembic/` directory contains all migration scripts and configuration.
+
+### How it works
+
+- On startup, `app.py` calls `run_migrations()` which runs `alembic upgrade head`
+- Alembic applies any pending migrations in order before the app starts serving requests
+- All migration history lives in `alembic/versions/`
+
+### Current migration history
+
+| Revision | Description |
+|---|---|
+| `dcdfb0af270f` | create_users_table — baseline schema |
+| `0109ac18c412` | add_photo_url_to_users |
+
+---
+
+## Adding a Migration
+
+### 1. Change your model
+
+Edit the relevant model in `src/modules/<module>/models.py`. For example, adding a `bio` field to `User`:
+
+```python
+class User(BaseModel, table=True):
+    ...
+    bio: str | None = Field(default=None)
+```
+
+### 2. Auto-generate the migration
+
+```bash
+alembic revision --autogenerate -m "add_bio_to_users"
+```
+
+Alembic compares your models against the current database schema and generates a migration file in `alembic/versions/`.
+
+### 3. Review the generated file
+
+Always open and review the generated file before applying it. Alembic's autogenerate is accurate for column additions/removals but may miss some changes (e.g. check constraints, indexes on existing columns).
+
+### 4. Apply
+
+```bash
+alembic upgrade head
+```
+
+Or simply restart the app — migrations run automatically on startup.
+
+---
+
+## Useful Alembic Commands
+
+```bash
+# Show current revision the database is at
+alembic current
+
+# Show full migration history
+alembic history --verbose
+
+# Apply all pending migrations
+alembic upgrade head
+
+# Roll back one migration
+alembic downgrade -1
+
+# Roll back to a specific revision
+alembic downgrade <revision_id>
+
+# Roll back all migrations
+alembic downgrade base
+
+# Generate a migration without autogenerate (write SQL manually)
+alembic revision -m "description"
+
+# Mark the database as being at a specific revision without running migrations
+alembic stamp <revision_id>
+alembic stamp head
+```
+
+---
+
+
+
+## Adding a New Module
+
+1. Create `src/modules/<name>/models.py` with your SQLModel table class
+2. Import the model in `alembic/env.py` so Alembic can detect it:
+   ```python
+   from src.modules.<name>.models import YourModel  # noqa: F401
+   ```
+3. Generate and apply a migration (see [Adding a Migration](#adding-a-migration))

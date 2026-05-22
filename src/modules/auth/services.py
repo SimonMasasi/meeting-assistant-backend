@@ -1,3 +1,5 @@
+from src.utils.passwords import PasswordManager
+
 from .models import User
 from src.shared.database import engine 
 from sqlmodel import Session, select 
@@ -9,6 +11,10 @@ class AuthService:
 
 
     def create_user(self, user_data: dict) -> User:
+
+        password_manager = PasswordManager()
+        user_data['password'] = password_manager.hash_password(user_data['password'])
+
         user = User(**user_data)
         with Session(engine) as session:
             session.add(user)
