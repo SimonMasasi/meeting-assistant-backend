@@ -36,12 +36,4 @@ class AuthService:
             current_page_number=filtering.page_number,
             size_requested=filtering.items_per_page,
             select_function=select_statement,
-            model=User
         )
-        
-    
-    def get_user_by_id(self, user_id: int) -> User | None:
-        with Session(engine) as session:
-            user = session.get(User, user_id)
-
-        return user

@@ -7,8 +7,7 @@ from sqlmodel.sql._expression_select_cls import SelectOfScalar
 
 T= TypeVar("T")
 
-def build_paginated_data(current_page_number: int, size_requested: int ,select_function: SelectOfScalar[T] , model: T):
-
+def build_paginated_data(current_page_number: int, size_requested: int ,select_function: SelectOfScalar[T]):
 
     try:
 
@@ -42,7 +41,6 @@ def build_paginated_data(current_page_number: int, size_requested: int ,select_f
         )
     except Exception as e:
         e.with_traceback()
-        print(e)
         return ListResponse(
             response=ResponseObjects.get_response(id=2 , message=str(e)),
             page=None,
