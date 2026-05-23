@@ -5,7 +5,7 @@ from src.shared.database import engine
 from sqlmodel import Session, select 
 from src.shared.dtos import  ListResponse
 from src.shared.paginated_data import build_paginated_data
-from  .dtos import UserFilterDTO
+from  .dtos import UserFilterDTO , UserInputDTO
 
 
 class AuthService:
@@ -13,17 +13,31 @@ class AuthService:
         pass
 
 
-    def create_user(self, user_data: dict) -> User:
+    def create_user(self, user_data: UserInputDTO) -> tuple[bool , str , User | None]:
 
         password_manager = PasswordManager()
-        user_data['password'] = password_manager.hash_password(user_data['password'])
+        user_data.password = password_manager.hash_password(user_data.password)
 
-        user = User(**user_data)
+        #check if password is strong
+        is_strong , message = password_manager.is_strong_password(user_data.password)
+        if not is_strong:
+            return False, message, None
+        
+        #check if email or username already exists
+        with Session(engine) as session:
+            existing_user = session.exec(select(User).where(User.email == user_data.email)).first()
+            if existing_user:
+                return False, "Email already exists", None
+            existing_user = session.exec(select(User).where(User.username == user_data.username)).first()
+            if existing_user:
+                return False, "Username already exists", None
+
+        user = User(**user_data.model_dump())
         with Session(engine) as session:
             session.add(user)
             session.commit()
             session.refresh(user)
-        return user
+        return True, "User created successfully", user
     
     def get_all_users(self , filtering:UserFilterDTO) -> ListResponse[User]:
 
@@ -36,4 +50,5 @@ class AuthService:
             current_page_number=filtering.page_number,
             size_requested=filtering.items_per_page,
             select_function=select_statement,
+            filtering=filtering
         )

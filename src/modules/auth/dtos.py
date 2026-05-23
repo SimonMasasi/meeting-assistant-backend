@@ -1,11 +1,11 @@
-from pydantic import BaseModel
+from pydantic import BaseModel , Field
 from src.shared.dtos import BaseFilteringInput
 from typing import Optional
 
 class UserInputDTO(BaseModel):
-    username: str
-    email: str
-    password: str
+    username: str  = Field(..., min_length=3, max_length=50)
+    email: str = Field(..., pattern=r'^\S+@\S+\.\S+$')
+    password: str = Field(..., min_length=8)
     first_name:str | None = None
     last_name:str | None = None
     middle_name:str | None = None

@@ -1,7 +1,7 @@
 from datetime import datetime
 import enum
 import json
-from typing import Generic, List, Optional, Tuple, TypeVar, Union
+from typing import Generic, List, Optional, TypeVar, Union
 from pydantic import BaseModel
 
 T = TypeVar("T")
@@ -75,9 +75,6 @@ class PageObject(BaseModel):
                 total_elements=total_items,
                 pages_number_array=list(range(1, number_of_pages + 1))
             )
-    
-    
-
 
 
 
@@ -109,12 +106,11 @@ class BaseObject(BaseModel):
 
 class BaseFilteringInput(BaseModel):
     is_active: Optional[bool] = None
-    uuid: Optional[str] = None
+    id: Optional[str] = None
     search_term: Optional[str] = None
-    items_per_page: Optional[int] = None
-    page_number: int
+    items_per_page: Optional[int] = 20
+    page_number: int = 1
     time_range: Optional[TimeRange] = None
     time_from: Optional[datetime] = None
     time_to: Optional[datetime] = None
-    ascending: Optional[bool] = None
 

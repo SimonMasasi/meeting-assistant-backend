@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from scalar_fastapi import get_scalar_api_reference
 from src.shared.database import run_migrations
-from routes import routes
+from src.shared.routes import routes
 
 
 app = FastAPI()

@@ -1,13 +1,13 @@
-from .dtos import PageObject , ListResponse , ResponseObjects
+from .dtos import PageObject , ListResponse , ResponseObjects ,BaseFilteringInput
 from typing import TypeVar
 
 from src.shared.database import engine 
-from sqlmodel import Session, func, select
+from sqlmodel import Session, String, func, select
 from sqlmodel.sql._expression_select_cls import SelectOfScalar
 
 T= TypeVar("T")
 
-def build_paginated_data(current_page_number: int, size_requested: int ,select_function: SelectOfScalar[T]):
+def build_paginated_data(current_page_number: int, size_requested: int ,select_function: SelectOfScalar[T] , filtering: BaseFilteringInput) -> ListResponse[T]:
 
     try:
 
@@ -20,11 +20,14 @@ def build_paginated_data(current_page_number: int, size_requested: int ,select_f
 
             #check if the offset is out of range
             if offset >= total_items:
-                return ListResponse(
-                    response=ResponseObjects.get_response(id=3 , message="Page number out of range"),
-                    page=None,
-                    data=None
-                )
+                return ListResponse(response=ResponseObjects.get_response(id=3 , message="Page number out of range"))
+            
+            if filtering.id:
+                select_function = select_function.where(func.cast(select_function.selected_columns["id"], String) == filtering.id)
+
+            if filtering.search_term:
+                select_function = apply_search_filter(select_function, filtering.search_term)
+
 
             items = session.exec(select_function.offset(offset).limit(size_requested)).all()
 
@@ -49,4 +52,12 @@ def build_paginated_data(current_page_number: int, size_requested: int ,select_f
 
 
 
+
+def apply_search_filter(select_function: SelectOfScalar[T] , search_term: str) -> SelectOfScalar[T]:
+    # apply search filter to all string values in a model from the select function
+    search_term = f"%{search_term}%"
+    for column in select_function.selected_columns:
+        if isinstance(column.type, String):
+            select_function = select_function.where(column.like(search_term))
+    return select_function
     

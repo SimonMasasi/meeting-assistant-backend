@@ -9,7 +9,7 @@ class User(BaseModel, table=True):
 
     username: str = Field(unique=True)
     email: str = Field(unique=True)
-    password: str
+    password: str = Field(exclude=True)
     first_name: str | None = Field(default=None)
     last_name: str | None = Field(default=None)
     middle_name: str | None = Field(default=None)
