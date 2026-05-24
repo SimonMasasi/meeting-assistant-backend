@@ -1,4 +1,5 @@
 from sqlmodel import Field
+from pydantic import computed_field
 from src.shared.base_model import BaseModel
 from src.shared.enums import UserTypeEnum
 
@@ -16,9 +17,8 @@ class User(BaseModel, table=True):
     photo_url: str | None = Field(default=None)
     user_type: UserTypeEnum | None = Field(default=UserTypeEnum.NORMAL_USER)
 
-
+    @computed_field
     @property
     def full_name(self) -> str:
         names = [self.first_name, self.middle_name, self.last_name]
         return " ".join(name for name in names if name)
-    

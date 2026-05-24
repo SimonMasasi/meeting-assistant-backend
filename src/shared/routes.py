@@ -1,5 +1,7 @@
 from src.modules.auth.views import auth_router
+from src.modules.settings.views import settings_router
 
 routes  = [
-    auth_router
+    auth_router,
+    settings_router
 ]
