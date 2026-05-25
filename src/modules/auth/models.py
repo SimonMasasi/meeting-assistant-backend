@@ -16,6 +16,8 @@ class User(BaseModel, table=True):
     middle_name: str | None = Field(default=None)
     photo_url: str | None = Field(default=None)
     user_type: UserTypeEnum | None = Field(default=UserTypeEnum.NORMAL_USER)
+    account_locked: bool | None = Field(default=False)
+    failed_login_attempts: int | None = Field(default=0)
 
     @computed_field
     @property

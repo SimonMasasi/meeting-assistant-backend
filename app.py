@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from scalar_fastapi import get_scalar_api_reference
 from src.shared.database import run_migrations
 from src.shared.routes import routes
+from config import SETTINGS
+import uvicorn
 
 
 app = FastAPI()
@@ -19,3 +21,7 @@ async def scalar_html():
         # Avoid CORS issues (optional)
         scalar_proxy_url="https://proxy.scalar.com",
     )
+    
+    
+if __name__ == "__main__":
+    uvicorn.run(app, host=SETTINGS.APP_HOST, port=SETTINGS.APP_PORT , log_level="debug" if SETTINGS.DEBUG else "info")

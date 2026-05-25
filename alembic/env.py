@@ -9,6 +9,7 @@ from config import SETTINGS
 
 # Import all models so they register on SQLModel.metadata
 from src.modules.auth.models import User  # noqa: F401
+from src.modules.settings.models import EmailConfiguration  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
