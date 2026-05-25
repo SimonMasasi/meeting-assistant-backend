@@ -56,19 +56,42 @@ class AuthService:
             )
 
             return True, "Authentication successful", user_login_response
+        
+        
+    def refresh_access_token(self, refresh_token: str) -> tuple[bool , str , UserLoginResponseDTO | None]:
+        try:
+            payload = self.jwt_auth.decode(refresh_token)
+            user_id = payload.get("user_id")
+            if not user_id:
+                return False, "Invalid refresh token", None
+            
+            with Session(engine) as session:
+                user = session.exec(select(User).where(User.id == user_id)).first()
+                if not user:
+                    return False, "User not found", None
+                
+                access_token, new_refresh_token , expires_in = self.jwt_auth.create_access_token_and_refresh_token(user)
+                user_login_response = UserLoginResponseDTO(
+                    access_token=access_token,
+                    refresh_token=new_refresh_token,
+                    expires_in=expires_in,
+                    user=user
+                )
+                return True, "Access token refreshed successfully", user_login_response
+        except Exception as e:
+            logger.error("Error refreshing access token: %s", str(e))
+            return False, "Invalid refresh token", None
 
 
     def create_user(self, user_data: UserInputDTO) -> tuple[bool , str , User | None]:
-
         password_manager = PasswordManager()
-        user_data.password = password_manager.hash_password(user_data.password)
 
         #check if password is strong
         is_strong , message = password_manager.is_strong_password(user_data.password)
         if not is_strong:
             return False, message, None
-        
-        #check if email or username already exists
+               
+
         with Session(engine) as session:
             existing_user = session.exec(select(User).where(User.email == user_data.email)).first()
             if existing_user:
@@ -76,12 +99,14 @@ class AuthService:
             existing_user = session.exec(select(User).where(User.username == user_data.username)).first()
             if existing_user:
                 return False, "Username already exists", None
-
-        user = User(**user_data.model_dump())
-        with Session(engine) as session:
+            
+            user_data.password = password_manager.hash_password(user_data.password)
+            user = User(**user_data.model_dump())
+            
             session.add(user)
             session.commit()
             session.refresh(user)
+             
         return True, "User created successfully", user
     
     def get_all_users(self , filtering:UserFilterDTO) -> ListResponse[User]:

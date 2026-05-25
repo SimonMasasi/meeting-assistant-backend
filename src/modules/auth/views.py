@@ -32,4 +32,11 @@ def login_user(user_data: UserLoginInputDTO) -> SingleResponse[UserLoginResponse
         return SingleResponse(data=None , response=ResponseObjects.get_response(id=2 , message=message))
     return SingleResponse(data=user_login_response , response=ResponseObjects.get_response(id=1 , message=message))
 
+@auth_router.post("/refresh-token")
+def refresh_access_token(refresh_token: str) -> SingleResponse[UserLoginResponseDTO]:
+    success, message, user_login_response = auth_service.refresh_access_token(refresh_token)
+    if not success:
+        return SingleResponse(data=None , response=ResponseObjects.get_response(id=2 , message=message))
+    return SingleResponse(data=user_login_response , response=ResponseObjects.get_response(id=1 , message=message))
+
 
