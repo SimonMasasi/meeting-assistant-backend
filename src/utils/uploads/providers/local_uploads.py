@@ -5,7 +5,7 @@ from src.utils.generators import Generator
 class LocalUploads:
     
     def __init__(self):
-        self.upload_folder = "uploads"
+        self.upload_folder = "uploads_media"
         os.makedirs(self.upload_folder, exist_ok=True)
         
 

@@ -20,7 +20,7 @@ def build_paginated_data(current_page_number: int, size_requested: int ,select_f
             total_items = session.exec(select(func.count()).select_from(select_function.subquery())).one()
 
             #check if the offset is out of range
-            if offset >= total_items:
+            if offset >= total_items and total_items != 0:
                 return ListResponse(response=ResponseObjects.get_response(id=3 , message="Page number out of range"))
             
             if filtering.id:
