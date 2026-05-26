@@ -1,8 +1,6 @@
 from fastapi import APIRouter
 from .models import EmailConfiguration
-from src.shared.dtos import  ListResponse, ResponseObjects ,SingleResponse
-from fastapi import Query
-from typing import Annotated
+from src.shared.dtos import ResponseObjects ,SingleResponse
 from .dtos import EmailInputConfigurationDTO
 from .services import SettingsService
 
