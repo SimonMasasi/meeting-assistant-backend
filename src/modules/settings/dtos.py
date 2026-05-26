@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field
+from pydantic import Field
+from src.shared.base_model import CamelCaseModel
 
 
-class EmailInputConfigurationDTO(BaseModel):
+class EmailInputConfigurationDTO(CamelCaseModel):
     smtp_server: str = Field(..., min_length=1)
     smtp_port: int = Field(..., gt=0)
     username: str  = Field(..., min_length=1)

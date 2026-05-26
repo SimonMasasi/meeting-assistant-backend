@@ -122,3 +122,20 @@ class AuthService:
             select_function=select_statement,
             filtering=filtering
         )
+        
+    def get_profile_from_token(self, token: str) -> tuple[bool , str , User | None]:
+        try:
+            payload = self.jwt_auth.decode(token)
+            user_id = payload.get("user_id")
+            if not user_id:
+                return False, "Invalid token", None
+            
+            with Session(engine) as session:
+                user = session.exec(select(User).where(User.id == user_id)).first()
+                if not user:
+                    return False, "User not found", None
+                
+                return True, "User profile retrieved successfully", user
+        except Exception as e:
+            logger.error("Error retrieving user profile from token: %s", str(e))
+            return False, "Invalid token", None

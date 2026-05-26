@@ -31,11 +31,7 @@ def build_paginated_data(current_page_number: int, size_requested: int ,select_f
 
             items = session.exec(select_function.offset(offset).limit(size_requested)).all()
 
-        page_object = PageObject.get_page(
-            total_items=total_items,
-            current_page_number=current_page_number,
-            size_requested=size_requested,
-        )
+        page_object = PageObject.get_page(total_items=total_items,current_page_number=current_page_number,size_requested=size_requested)
 
         return ListResponse(response=ResponseObjects.get_response(id=1),page=page_object,data=items)
     except Exception as e:

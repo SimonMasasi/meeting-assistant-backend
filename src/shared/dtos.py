@@ -2,11 +2,11 @@ from datetime import datetime
 import enum
 import json
 from typing import Generic, List, Optional, TypeVar, Union
-from pydantic import BaseModel
+from src.shared.base_model import CamelCaseModel
 
 T = TypeVar("T")
 
-class ResponseObjects(BaseModel):
+class ResponseObjects(CamelCaseModel):
     id: str
     status: Optional[bool] = None
     code: Optional[int] = None
@@ -39,7 +39,7 @@ class ResponseObjects(BaseModel):
 
 
 
-class PageObject(BaseModel):
+class PageObject(CamelCaseModel):
     number: int
     has_next_page: bool
     has_previous_page: bool
@@ -85,18 +85,18 @@ class TimeRange(str , enum.Enum):
     YEARLY = "YEARLY"
 
 
-class SingleResponse(BaseModel,Generic[T]):
+class SingleResponse(CamelCaseModel, Generic[T]):
     response: ResponseObjects
     data: Optional[T] = None
 
 
-class ListResponse(BaseModel ,Generic[T]):
+class ListResponse(CamelCaseModel, Generic[T]):
     response: ResponseObjects
     page: Optional[PageObject] = None
     data: Optional[List[T]] = None
 
 
-class BaseObject(BaseModel):
+class BaseObject(CamelCaseModel):
     id: Optional[str]
     uuid: Optional[str]
     is_active: Optional[bool]
@@ -104,7 +104,7 @@ class BaseObject(BaseModel):
 
 
 
-class BaseFilteringInput(BaseModel):
+class BaseFilteringInput(CamelCaseModel):
     is_active: Optional[bool] = None
     id: Optional[str] = None
     search_term: Optional[str] = None

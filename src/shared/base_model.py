@@ -1,9 +1,18 @@
 from sqlmodel import Field, SQLModel
-from pydantic import field_serializer
+from pydantic import BaseModel as PydanticBaseModel, ConfigDict, field_serializer
+from pydantic.alias_generators import to_camel
 from src.utils.generators import  Generator
 from datetime import datetime
 
+_camel_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+
+class CamelCaseModel(PydanticBaseModel):
+    model_config = _camel_config
+
+
 class BaseModel(SQLModel):
+    model_config = _camel_config
 
     id: int = Field(primary_key=True , default_factory=Generator.generate_64bit_int_uuid , unique=True)
     is_active: bool = Field(default_factory=lambda: True)

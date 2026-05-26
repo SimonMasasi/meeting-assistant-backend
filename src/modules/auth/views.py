@@ -1,10 +1,11 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from src.modules.auth.models import User
 from src.shared.dtos import  ListResponse, ResponseObjects ,SingleResponse
 from fastapi import Query
 from typing import Annotated
 from .dtos import UserFilterDTO, UserInputDTO, UserLoginInputDTO, UserLoginResponseDTO
 from .services import AuthService
+from src.shared.dependencies import get_current_user
 
 
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
@@ -21,8 +22,7 @@ def register_user(user_data: UserInputDTO) -> SingleResponse[User]:
 
 @auth_router.get("/users")
 def get_all_users(params: Annotated[UserFilterDTO, Query()]) -> ListResponse[User]:
-    users = auth_service.get_all_users(params)
-    return users
+    return auth_service.get_all_users(params)
 
 
 @auth_router.post("/login")
@@ -38,5 +38,10 @@ def refresh_access_token(refresh_token: str) -> SingleResponse[UserLoginResponse
     if not success:
         return SingleResponse(data=None , response=ResponseObjects.get_response(id=2 , message=message))
     return SingleResponse(data=user_login_response , response=ResponseObjects.get_response(id=1 , message=message))
+
+
+@auth_router.get("/me")
+def get_current_user_profile(current_user: User = Depends(get_current_user)) -> SingleResponse[User]:
+    return SingleResponse(data=current_user, response=ResponseObjects.get_response(id=1))
 
 
