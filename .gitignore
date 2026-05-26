@@ -13,4 +13,4 @@ wheels/
 *.sqlite
 
 #uploads
-uploads/
+uploads_media/
