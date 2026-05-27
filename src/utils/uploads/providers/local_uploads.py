@@ -7,6 +7,14 @@ class LocalUploads:
     def __init__(self):
         self.upload_folder = "uploads_media"
         os.makedirs(self.upload_folder, exist_ok=True)
+        self.upload_root = os.path.realpath(os.path.abspath(self.upload_folder))
+
+    def _resolve_safe_path(self, file_path: str) -> str | None:
+        candidate = os.path.abspath(file_path)
+        candidate_real = os.path.realpath(candidate)
+        if os.path.commonpath([self.upload_root, candidate_real]) != self.upload_root:
+            return None
+        return candidate_real
         
 
     def upload_file(self, file_bytes: bytes, object_name: str):
@@ -26,18 +34,17 @@ class LocalUploads:
         return True , "File uploaded successfully" , file_path
     
     def get_file_as_bytes(self, file_path: str) -> bytes | None:
-        
-        #check suspicious path traversal attack
-        if '..' in file_path or file_path.startswith('/'):
+        safe_path = self._resolve_safe_path(file_path)
+        if safe_path is None or not os.path.exists(safe_path):
             return None
-        
-        if not file_path.startswith(self.upload_folder):
-            return None
-        
-        if not os.path.exists(file_path):
-            return None
-        
-        with open(file_path, 'rb') as f:
+
+        with open(safe_path, 'rb') as f:
             file_bytes = f.read()
         
         return file_bytes
+
+    def get_file_stream(self, file_path: str):
+        safe_path = self._resolve_safe_path(file_path)
+        if safe_path is None or not os.path.exists(safe_path):
+            return None
+        return open(safe_path, 'rb')

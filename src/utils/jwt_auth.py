@@ -50,7 +50,7 @@ class JWTAuth:
         new_access_payload = {
             "user_id": user_id,
             "username": username,
-            "exp": (datetime.now(tz=timezone.utc) + timedelta(seconds=SETTINGS.JWT_ACCESS_TOKEN_EXPIRE_SECONDS + 3*60*60) ).timestamp(),
+            "exp": (datetime.now(tz=timezone.utc) + timedelta(seconds=SETTINGS.JWT_ACCESS_TOKEN_EXPIRE_SECONDS)).timestamp(),
             "iss": "meeting-assistant-backend"
         }
         

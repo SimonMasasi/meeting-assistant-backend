@@ -15,6 +15,9 @@ class UploadsManager:
     
     def get_file_as_bytes(self, object_name: str) -> bytes | None:
         return self.provider.get_file_as_bytes(object_name)
+
+    def get_file_stream(self, object_name: str):
+        return self.provider.get_file_stream(object_name)
     
     def calculate_file_size(self, file_bytes: bytes) -> int:
         return len(file_bytes)

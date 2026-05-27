@@ -47,7 +47,6 @@ class RustfUploads:
 
     def upload_file(self, file_bytes: bytes, object_name: str):
         try:
-            self.create_s3_bucket()
             file_type_folder = classify_file_type_to_folder(file_bytes).rstrip('/')
             unique_identifier = Generator.generate_64bit_int_uuid()
             original_extension = os.path.splitext(object_name)[1]
@@ -66,6 +65,14 @@ class RustfUploads:
             return file_bytes
         except Exception as e:
             logger.error(f"Error retrieving file: {e}")
-            return None    
+            return None
+
+    def get_file_stream(self, file_path: str):
+        try:
+            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=file_path)
+            return response['Body']
+        except Exception as e:
+            logger.error(f"Error retrieving file stream: {e}")
+            return None
         
     
