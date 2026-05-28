@@ -7,11 +7,12 @@ from sqlmodel.sql._expression_select_cls import SelectOfScalar
 
 T= TypeVar("T")
 
-def build_paginated_data(current_page_number: int, size_requested: int ,select_function: SelectOfScalar[T],
-                        filtering: BaseFilteringInput) -> ListResponse[T]:
+def build_paginated_data(select_function: SelectOfScalar[T],filtering: BaseFilteringInput) -> ListResponse[T]:
 
     try:
-
+        
+        current_page_number = filtering.page_number if filtering.page_number and filtering.page_number > 0 else 1
+        size_requested = filtering.items_per_page if filtering.items_per_page and filtering.items_per_page > 0 else 1
         offset = (current_page_number - 1) * size_requested
 
 

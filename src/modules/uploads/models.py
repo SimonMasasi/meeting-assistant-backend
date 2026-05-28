@@ -13,6 +13,6 @@ class UploadedFile(BaseModel, table=True):
     size: int
     file_path: str
     file_type: FileTypeEnum = Field(default=FileTypeEnum.OTHER)
-    file_hash: str | None = Field(default=None, unique=True, index=True)
+    file_hash: str | None = Field(default=None, unique=True)
     
     mimetype: str | None = Field(default=None)

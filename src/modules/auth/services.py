@@ -117,8 +117,6 @@ class AuthService:
             select_statement = select_statement.where(User.email == filtering.email)
 
         return build_paginated_data(
-            current_page_number=filtering.page_number,
-            size_requested=filtering.items_per_page,
             select_function=select_statement,
             filtering=filtering
         )
