@@ -23,7 +23,6 @@ def upload_file(file:UploadFile) -> SingleResponse[UploadedFile]:
 @uploads_router.get("/get-file/{file_id}", dependencies=[Depends(get_current_user)])
 def get_file(file_id: str):
     success, message, file_stream, file_metadata = upload_service.get_file(file_id)
-
     if not success:
         raise HTTPException(status_code=400, detail=message)
 
