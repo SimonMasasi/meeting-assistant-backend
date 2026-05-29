@@ -13,11 +13,11 @@ class UploadsManager:
     def upload_file(self, file_bytes: bytes, object_name: str):
         return self.provider.upload_file(file_bytes, object_name)
     
-    def get_file_as_bytes(self, object_name: str) -> bytes | None:
-        return self.provider.get_file_as_bytes(object_name)
+    def get_file_as_bytes(self, file_path: str) -> bytes | None:
+        return self.provider.get_file_as_bytes(file_path)
 
-    def get_file_stream(self, object_name: str):
-        return self.provider.get_file_stream(object_name)
+    def get_file_stream(self, file_path: str):
+        return self.provider.get_file_stream(file_path)
     
     def calculate_file_size(self, file_bytes: bytes) -> int:
         return len(file_bytes)
