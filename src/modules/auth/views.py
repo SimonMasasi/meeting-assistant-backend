@@ -3,7 +3,7 @@ from src.modules.auth.models import User
 from src.shared.dtos import  ListResponse, ResponseObjects ,SingleResponse
 from fastapi import Query
 from typing import Annotated
-from .dtos import UserFilterDTO, UserInputDTO, UserLoginInputDTO, UserLoginResponseDTO
+from .dtos import ChangePasswordInputDTO, UpdateUserInputDTO, UserFilterDTO, UserInputDTO, UserLoginInputDTO, UserLoginResponseDTO
 from .services import AuthService
 from src.shared.dependencies import get_current_user
 
@@ -45,3 +45,16 @@ def get_current_user_profile(current_user: User = Depends(get_current_user)) -> 
     return SingleResponse(data=current_user, response=ResponseObjects.get_response(id=1))
 
 
+@auth_router.put("/update-my-profile")
+def update_my_profile(update_data: UpdateUserInputDTO, current_user: User = Depends(get_current_user)) -> SingleResponse[User]:
+    success, message, updated_user = auth_service.update_my_profile(current_user.id, update_data)
+    if not success:
+        return SingleResponse(data=None , response=ResponseObjects.get_response(id=2 , message=message))
+    return SingleResponse(data=updated_user , response=ResponseObjects.get_response(id=1 , message=message))
+
+@auth_router.post("/change-password")
+def change_password(change_password_data: ChangePasswordInputDTO, current_user: User = Depends(get_current_user)) -> SingleResponse[None]:
+    success, message = auth_service.change_password(current_user.id, change_password_data)
+    if not success:
+        return SingleResponse(data=None , response=ResponseObjects.get_response(id=2 , message=message))
+    return SingleResponse(data=None , response=ResponseObjects.get_response(id=1 , message=message))

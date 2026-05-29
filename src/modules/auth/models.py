@@ -1,7 +1,11 @@
-from sqlmodel import Field
+from sqlmodel import Field , select , Session
+from sqlalchemy import BigInteger
 from pydantic import computed_field
 from src.shared.base_model import BaseModel
 from src.shared.enums import UserTypeEnum
+from src.modules.uploads.models import UploadedFile
+from src.shared.database import engine
+
 
 
 
@@ -14,7 +18,7 @@ class User(BaseModel, table=True):
     first_name: str | None = Field(default=None)
     last_name: str | None = Field(default=None)
     middle_name: str | None = Field(default=None)
-    photo_url: str | None = Field(default=None)
+    photo_id: int | None = Field(foreign_key="uploaded_files.id", default=None, exclude=True , sa_type=BigInteger())
     user_type: UserTypeEnum | None = Field(default=UserTypeEnum.NORMAL_USER)
     account_locked: bool | None = Field(default=False)
     failed_login_attempts: int | None = Field(default=0)
@@ -24,3 +28,12 @@ class User(BaseModel, table=True):
     def full_name(self) -> str:
         names = [self.first_name, self.middle_name, self.last_name]
         return " ".join(name for name in names if name)
+    
+
+    @computed_field
+    @property
+    def photo(self) -> UploadedFile | None:
+        if self.photo_id is None:
+            return None
+        with Session(engine) as session:
+            return session.exec(select(UploadedFile).where(UploadedFile.id == self.photo_id)).first()

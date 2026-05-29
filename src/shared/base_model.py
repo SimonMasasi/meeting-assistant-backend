@@ -1,4 +1,5 @@
 from sqlmodel import Field, SQLModel
+from sqlalchemy import BigInteger
 from pydantic import BaseModel as PydanticBaseModel, ConfigDict, field_serializer
 from pydantic.alias_generators import to_camel
 from src.utils.generators import  Generator
@@ -14,7 +15,7 @@ class CamelCaseModel(PydanticBaseModel):
 class BaseModel(SQLModel):
     model_config = _camel_config
 
-    id: int = Field(primary_key=True , default_factory=Generator.generate_64bit_int_uuid , unique=True)
+    id: int = Field(primary_key=True, sa_type=BigInteger(), default_factory=Generator.generate_64bit_int_uuid, unique=True)
     is_active: bool = Field(default_factory=lambda: True)
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)

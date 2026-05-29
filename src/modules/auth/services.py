@@ -5,8 +5,9 @@ from src.shared.database import engine
 from sqlmodel import Session, select 
 from src.shared.dtos import  ListResponse
 from src.shared.paginated_data import build_paginated_data
-from  .dtos import UserFilterDTO , UserInputDTO , UserLoginResponseDTO , UserLoginInputDTO
+from  .dtos import UserFilterDTO , UserInputDTO , UserLoginResponseDTO , UserLoginInputDTO , UpdateUserInputDTO , ChangePasswordInputDTO
 from src.utils.jwt_auth import JWTAuth
+from src.shared.enums import FileTypeEnum
 
 import logging
 logger = logging.getLogger(__name__)
@@ -16,6 +17,7 @@ class AuthService:
     def __init__(self):
         self.jwt_auth = JWTAuth()
         self.LOGIN_ATTEMPT_LIMIT = 5
+        self.password_manager = PasswordManager()
         
         
     def authenticate_user(self, input: UserLoginInputDTO) -> tuple[bool , str , UserLoginResponseDTO | None]:
@@ -26,8 +28,7 @@ class AuthService:
                 logger.warning("Authentication failed for username: %s", input.username)
                 return False, "Invalid username or password", None
             
-            password_manager = PasswordManager()
-            if not password_manager.verify_password(input.password, user.password):
+            if not self.password_manager.verify_password(input.password, user.password):
                 #increment failed login attempts
                 user.failed_login_attempts += 1
                 #lock account if failed login attempts exceed limit
@@ -84,10 +85,8 @@ class AuthService:
 
 
     def create_user(self, user_data: UserInputDTO) -> tuple[bool , str , User | None]:
-        password_manager = PasswordManager()
-
         #check if password is strong
-        is_strong , message = password_manager.is_strong_password(user_data.password)
+        is_strong , message = self.password_manager.is_strong_password(user_data.password)
         if not is_strong:
             return False, message, None
                
@@ -100,7 +99,7 @@ class AuthService:
             if existing_user:
                 return False, "Username already exists", None
             
-            user_data.password = password_manager.hash_password(user_data.password)
+            user_data.password = self.password_manager.hash_password(user_data.password)
             user = User(**user_data.model_dump())
             
             session.add(user)
@@ -137,3 +136,56 @@ class AuthService:
         except Exception as e:
             logger.error("Error retrieving user profile from token: %s", str(e))
             return False, "Invalid token", None
+        
+
+    def update_my_profile(self, user_id: int, update_data: UpdateUserInputDTO) -> tuple[bool , str , User | None]:
+        with Session(engine) as session:
+            user = session.exec(select(User).where(User.id == user_id)).first()
+            if not user:
+                return False, "User not found", None
+            
+            #check if photo_id is being updated and if so, verify that the file exists
+            if update_data.photo_id:
+                from src.modules.uploads.models import UploadedFile
+                file = session.exec(select(UploadedFile).where(UploadedFile.id == update_data.photo_id)).first()
+                if not file:
+                    return False, "Photo file not found", None
+                
+                if file.file_type != FileTypeEnum.IMAGE:
+                    return False, "Uploaded file is not an image", None
+                
+            #change photo_id to int if it's not None
+            if update_data.photo_id is not None:
+                try:
+                    update_data.photo_id = int(update_data.photo_id)
+                except ValueError:
+                    update_data.photo_id = None
+                            
+            for field, value in update_data.model_dump(exclude_unset=True).items():
+                setattr(user, field, value)
+            
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+        
+        return True, "User profile updated successfully", user
+    
+
+    def change_password(self, user_id: int, input: ChangePasswordInputDTO) -> tuple[bool , str]:
+        with Session(engine) as session:
+            user = session.exec(select(User).where(User.id == user_id)).first()
+            if not user:
+                return False, "User not found"
+            
+            if not self.password_manager.verify_password(input.current_password, user.password):
+                return False, "Current password is incorrect"
+            
+            is_strong , message = self.password_manager.is_strong_password(input.new_password)
+            if not is_strong:
+                return False, message
+            
+            user.password = self.password_manager.hash_password(input.new_password)
+            session.add(user)
+            session.commit()
+        
+        return True, "Password changed successfully"

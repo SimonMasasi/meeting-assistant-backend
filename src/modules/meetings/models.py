@@ -1,4 +1,5 @@
 from sqlmodel import Field , select , Session
+from sqlalchemy import BigInteger
 from src.shared.base_model import BaseModel
 from pydantic import computed_field
 
@@ -17,7 +18,7 @@ class Meeting(BaseModel, table=True):
     description: str | None = None
     start_time: datetime = Field(default_factory=datetime.now)
     end_time: datetime| None = None
-    created_by_id: int = Field(foreign_key="users.id")
+    created_by_id: int = Field(foreign_key="users.id" , sa_type=BigInteger() , exclude=True)
         
     @computed_field
     @property
@@ -33,8 +34,8 @@ class MeetingSpeaker(BaseModel, table=True):
 
     speaker_name: str = Field(..., min_length=1)
     
-    meeting_id: int = Field(foreign_key="meetings.id" , exclude=True)
-    created_by_id: int = Field(foreign_key="users.id" , exclude=True)
+    meeting_id: int = Field(foreign_key="meetings.id" , sa_type=BigInteger() , exclude=True)
+    created_by_id: int = Field(foreign_key="users.id" , sa_type=BigInteger() , exclude=True)
     speaker_embeddings: str | None  = Field(default=None , exclude=True)
 
     
@@ -42,9 +43,9 @@ class MeetingSpeaker(BaseModel, table=True):
 class MeetingRecording(BaseModel, table=True):
     __tablename__ = "meeting_recordings"
 
-    file_id: int = Field(foreign_key="uploaded_files.id" , exclude=True)
-    meeting_id: int = Field(foreign_key="meetings.id" , exclude=True)
-    speaker_id: int | None = Field(foreign_key="meeting_speakers.id", default=None , exclude=True)
+    file_id: int = Field(foreign_key="uploaded_files.id" , sa_type=BigInteger() , exclude=True)
+    meeting_id: int = Field(foreign_key="meetings.id" , sa_type=BigInteger() , exclude=True)
+    speaker_id: int | None = Field(foreign_key="meeting_speakers.id", sa_type=BigInteger() , default=None , exclude=True)
 
     start_time: str | None = None
     end_time: str | None = None

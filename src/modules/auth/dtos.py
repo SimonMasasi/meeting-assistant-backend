@@ -12,9 +12,21 @@ class UserInputDTO(CamelCaseModel):
     last_name:str | None = None
     middle_name:str | None = None
 
+
+class UpdateUserInputDTO(CamelCaseModel):
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    middle_name: Optional[str] = None
+    photo_id: Optional[str] = None
+
+
+class ChangePasswordInputDTO(CamelCaseModel):
+    current_password: str = Field(..., min_length=8)
+    new_password: str = Field(..., min_length=8)
+    verify_new_password: str = Field(..., min_length=8)
+
 class UserFilterDTO(BaseFilteringInput):
     email: Optional[str] = None
-    
     
 class UserLoginInputDTO(CamelCaseModel):
     username: str

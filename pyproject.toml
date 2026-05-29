@@ -9,6 +9,7 @@ dependencies = [
     "bcrypt>=5.0.0",
     "boto3>=1.43.14",
     "fastapi[standard]>=0.136.1",
+    "psycopg2>=2.9.12",
     "pydantic-settings>=2.14.1",
     "pyjwt>=2.13.0",
     "python-magic>=0.4.27",

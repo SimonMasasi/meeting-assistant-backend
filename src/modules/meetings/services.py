@@ -70,14 +70,21 @@ class MeetingService:
                     end_time=str(end_time)
                 )
                 session.add(new_recording)
-                session.commit()
-                session.refresh(new_recording)
                 new_recordings.append(new_recording)
+
+            # Commit once so previously created instances are not expired/detached mid-loop.
+            session.commit()
+            for recording in new_recordings:
+                session.refresh(recording)
 
         return SingleResponse(response=ResponseObjects.get_response(1), data=new_recordings)
     
 
     def get_meeting_recordings(self, filtering_input: MeetingRecordingFilteringInputDTO) -> ListResponse[MeetingRecording]:
         logger.info("Retrieving recordings for meeting ID: %s with filters: %s", filtering_input.meeting_id, filtering_input)
+
+        if not filtering_input.meeting_id:
+            logger.error("Meeting ID is required to retrieve recordings")
+            return ListResponse(response=ResponseObjects.get_response(0, "Meeting ID is required"), data=None)
         query = select(MeetingRecording).where(MeetingRecording.meeting_id == int(filtering_input.meeting_id))
         return build_paginated_data(filtering=filtering_input,select_function=query)
