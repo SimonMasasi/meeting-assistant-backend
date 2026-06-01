@@ -184,10 +184,6 @@ class AuthService:
             if not user_auth_token:
                 return False, "Invalid or expired token"
 
-            user = session.exec(select(User).where(User.id == user_id_from_token)).first()
-            if not user:
-                return False, "User not found"
-
             if not self.password_manager.verify_password(input.current_password, user.password):
                 return False, "Current password is incorrect"
             
