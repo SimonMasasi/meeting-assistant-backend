@@ -1,13 +1,17 @@
+from datetime import timedelta
+from datetime import datetime
+
+from config import SETTINGS
 from src.utils.passwords import PasswordManager
 
-from .models import User
+from .models import User, UserAuthToken , UserAuthTokensTypes
 from src.shared.database import engine 
-from sqlmodel import Session, select 
+from sqlmodel import Session, select  , delete
 from src.shared.dtos import  ListResponse
 from src.shared.paginated_data import build_paginated_data
-from  .dtos import UserFilterDTO , UserInputDTO , UserLoginResponseDTO , UserLoginInputDTO , UpdateUserInputDTO , ChangePasswordInputDTO
+from  .dtos import UserFilterDTO , UserInputDTO , UserLoginResponseDTO , UserLoginInputDTO , UpdateUserInputDTO , ChangePasswordInputDTO , ForgotPasswordInputDTO , ForgotTokenInputDTO
 from src.utils.jwt_auth import JWTAuth
-from src.shared.enums import FileTypeEnum
+from src.shared.enums import FileTypeEnum , UserAuthTokensTypes
 
 import logging
 logger = logging.getLogger(__name__)
@@ -171,12 +175,19 @@ class AuthService:
         return True, "User profile updated successfully", user
     
 
-    def change_password(self, user_id: int, input: ChangePasswordInputDTO) -> tuple[bool , str]:
+    def change_password(self,input: ChangePasswordInputDTO, user_id: int) -> tuple[bool , str]:
+        user_auth_token = None
         with Session(engine) as session:
             user = session.exec(select(User).where(User.id == user_id)).first()
             if not user:
                 return False, "User not found"
-            
+            if not user_auth_token:
+                return False, "Invalid or expired token"
+
+            user = session.exec(select(User).where(User.id == user_id_from_token)).first()
+            if not user:
+                return False, "User not found"
+
             if not self.password_manager.verify_password(input.current_password, user.password):
                 return False, "Current password is incorrect"
             
@@ -186,6 +197,55 @@ class AuthService:
             
             user.password = self.password_manager.hash_password(input.new_password)
             session.add(user)
+
             session.commit()
         
         return True, "Password changed successfully"
+    
+
+    def request_forgot_password_token(self, input: ForgotTokenInputDTO) -> tuple[bool , str]:
+        with Session(engine) as session:
+            user = session.exec(select(User).where(User.email == input.email)).first()
+            if not user:
+                return False, "if the email exists in our system, a password reset email will be sent"
+            
+            #generate password reset token
+            reset_token = self.jwt_auth.create_password_reset_token(user)
+            #store password reset token in database
+            user_auth_token = UserAuthToken(
+                user_id=user.id,
+                token=reset_token,
+                expires_at=datetime.now() + timedelta(seconds=SETTINGS.JWT_PASSWORD_RESET_TOKEN_EXPIRE_SECONDS),
+                token_type=UserAuthTokensTypes.FORGET_PASSWORD
+            )
+            session.add(user_auth_token)
+            session.commit()
+
+            #send password reset email
+            # self.email_service.send_password_reset_email(user.email, reset_token)
+        
+        return True, "if the email exists in our system, a password reset email will be sent"
+    
+
+    def forgot_password(self, input: ForgotPasswordInputDTO) -> tuple[bool , str]:
+        with Session(engine) as session:
+            user_auth_token = session.exec(select(UserAuthToken).where(UserAuthToken.token == input.token, UserAuthToken.token_type == UserAuthTokensTypes.FORGET_PASSWORD)).first()
+            if not user_auth_token:
+                return False, "Invalid or expired token"
+            
+            user = session.exec(select(User).where(User.id == user_auth_token.user_id)).first()
+            if not user:
+                return False, "User not found"
+
+            is_strong , message = self.password_manager.is_strong_password(input.new_password)
+            if not is_strong:
+                return False, message
+            
+            user.password = self.password_manager.hash_password(input.new_password)
+            session.add(user)
+
+            #delete all forget password tokens for the user
+            session.exec(delete(UserAuthToken).where(UserAuthToken.user_id == user.id, UserAuthToken.token_type == UserAuthTokensTypes.FORGET_PASSWORD))
+            session.commit()
+        
+        return True, "Password reset successfully"

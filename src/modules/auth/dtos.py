@@ -21,10 +21,20 @@ class UpdateUserInputDTO(CamelCaseModel):
 
 
 class ChangePasswordInputDTO(CamelCaseModel):
-    current_password: str = Field(..., min_length=8)
+    current_password: str | None = Field(..., min_length=8 , nullable=True)
     new_password: str = Field(..., min_length=8)
     verify_new_password: str = Field(..., min_length=8)
 
+class ForgotTokenInputDTO(CamelCaseModel):
+    email: str = Field(..., pattern=r'^\S+@\S+\.\S+$')
+
+class ForgotPasswordInputDTO(CamelCaseModel):
+    token: str
+    new_password: str = Field(..., min_length=8)
+    verify_new_password: str = Field(..., min_length=8)
+
+
+ 
 class UserFilterDTO(BaseFilteringInput):
     email: Optional[str] = None
     

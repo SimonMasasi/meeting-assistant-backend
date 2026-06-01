@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_SECONDS: int = 300
     JWT_REFRESH_TOKEN_EXPIRE_SECONDS: int = 60 * 60 * 24 * 7
+    JWT_PASSWORD_RESET_TOKEN_EXPIRE_SECONDS: int = 60 * 60 * 24
     
     USE_RUSTF_UPLOADS: bool = False
     RUSTF_URL: str = "http://localhost:9000"

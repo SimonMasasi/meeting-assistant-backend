@@ -59,3 +59,13 @@ class JWTAuth:
         access_token = self.encode(access_payload)
 
         return access_token, SETTINGS.JWT_ACCESS_TOKEN_EXPIRE_SECONDS   
+    
+    def create_password_reset_token(self, user: User, expires_delta: int = SETTINGS.JWT_PASSWORD_RESET_TOKEN_EXPIRE_SECONDS) -> str:
+        payload = {
+            "user_id": user.id,
+            "username": user.username,
+            "exp": (datetime.now(tz=timezone.utc) + timedelta(seconds=expires_delta)).timestamp(),
+            "iss": "meeting-assistant-backend",
+            "type": "password_reset"
+        }
+        return self.encode(payload)

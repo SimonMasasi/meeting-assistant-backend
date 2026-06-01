@@ -20,7 +20,7 @@ def upload_file(file:UploadFile) -> SingleResponse[UploadedFile]:
     return upload_service.upload_file(file)
 
 
-@uploads_router.get("/get-file/{file_id}", dependencies=[Depends(get_current_user)])
+@uploads_router.get("/get-file/{file_id}")
 def get_file(file_id: str):
     success, message, file_stream, file_metadata = upload_service.get_file(file_id)
     if not success:

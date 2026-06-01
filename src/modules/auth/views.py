@@ -3,7 +3,8 @@ from src.modules.auth.models import User
 from src.shared.dtos import  ListResponse, ResponseObjects ,SingleResponse
 from fastapi import Query
 from typing import Annotated
-from .dtos import ChangePasswordInputDTO, UpdateUserInputDTO, UserFilterDTO, UserInputDTO, UserLoginInputDTO, UserLoginResponseDTO
+from .dtos import (ChangePasswordInputDTO, UpdateUserInputDTO, UserFilterDTO, UserInputDTO, UserLoginInputDTO, UserLoginResponseDTO 
+, ForgotPasswordInputDTO , ForgotTokenInputDTO)
 from .services import AuthService
 from src.shared.dependencies import get_current_user
 
@@ -54,7 +55,22 @@ def update_my_profile(update_data: UpdateUserInputDTO, current_user: User = Depe
 
 @auth_router.post("/change-password")
 def change_password(change_password_data: ChangePasswordInputDTO, current_user: User = Depends(get_current_user)) -> SingleResponse[None]:
-    success, message = auth_service.change_password(current_user.id, change_password_data)
+    success, message = auth_service.change_password(change_password_data, current_user.id)
+    if not success:
+        return SingleResponse(data=None , response=ResponseObjects.get_response(id=2 , message=message))
+    return SingleResponse(data=None , response=ResponseObjects.get_response(id=1 , message=message))
+
+@auth_router.post("/forgot-password")
+def forgot_password(forgot_password_data: ForgotPasswordInputDTO) -> SingleResponse[None]:
+    success, message = auth_service.forgot_password(forgot_password_data)
+    if not success:
+        return SingleResponse(data=None , response=ResponseObjects.get_response(id=2 , message=message))
+    return SingleResponse(data=None , response=ResponseObjects.get_response(id=1 , message=message))
+
+
+@auth_router.post("/request-forgot-password-token")
+def request_forgot_password_token(forgot_password_data: ForgotTokenInputDTO) -> SingleResponse[None]:
+    success, message = auth_service.request_forgot_password_token(forgot_password_data)
     if not success:
         return SingleResponse(data=None , response=ResponseObjects.get_response(id=2 , message=message))
     return SingleResponse(data=None , response=ResponseObjects.get_response(id=1 , message=message))

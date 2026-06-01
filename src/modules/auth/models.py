@@ -2,9 +2,10 @@ from sqlmodel import Field , select , Session
 from sqlalchemy import BigInteger
 from pydantic import computed_field
 from src.shared.base_model import BaseModel
-from src.shared.enums import UserTypeEnum
+from src.shared.enums import UserTypeEnum , UserAuthTokensTypes
 from src.modules.uploads.models import UploadedFile
 from src.shared.database import engine
+from datetime import datetime
 
 
 
@@ -37,3 +38,15 @@ class User(BaseModel, table=True):
             return None
         with Session(engine) as session:
             return session.exec(select(UploadedFile).where(UploadedFile.id == self.photo_id)).first()
+        
+
+class UserAuthToken(BaseModel, table=True):
+    __tablename__ = "user_auth_tokens"
+
+    user_id: int = Field(foreign_key="users.id", sa_type=BigInteger(), exclude=True)
+    token: str = Field(unique=True , exclude=True)
+    expires_at: datetime
+    token_type: UserAuthTokensTypes
+
+    def is_expired(self) -> bool:
+        return datetime.now() > self.expires_at
