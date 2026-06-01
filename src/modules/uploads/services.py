@@ -9,18 +9,6 @@ from sqlalchemy.exc import IntegrityError
 
 
 MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024
-ALLOWED_MIME_TYPES = {
-    "image/jpeg",
-    "image/png",
-    "image/gif",
-    "video/mp4",
-    "video/quicktime",
-    "video/x-msvideo",
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "text/plain",
-}
 
 class UploadService:
     def __init__(self):
@@ -38,8 +26,6 @@ class UploadService:
 
         file_bytes = file.file.read()
         file_mimetype = self.upload_provider.get_file_mimetype(file_bytes)
-        if file_mimetype not in ALLOWED_MIME_TYPES:
-            return SingleResponse(data=None , response=ResponseObjects.get_response(id=2 , message=f"Unsupported file type: {file_mimetype}"))
 
         object_name = file.filename
         
@@ -64,7 +50,7 @@ class UploadService:
                 mimetype=file_mimetype,
                 file_path=file_path,
                 file_hash=file_hash,
-                file_type=self.upload_provider.classify_file_type_to_file_enum(file_bytes).value,
+                file_type=self.upload_provider.classify_file_type_to_file_enum(file.filename).value,
                 content_type=file.content_type,
                 
             )

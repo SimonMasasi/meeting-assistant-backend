@@ -31,16 +31,23 @@ class UploadsManager:
         sha256_hash.update(file_bytes)
         return sha256_hash.hexdigest()
     
-    def classify_file_type_to_file_enum(self, file_bytes: bytes) -> FileTypeEnum:
-        mimetype = self.get_file_mimetype(file_bytes)
-        main_type = mimetype.split('/')[0]
-        if main_type == 'image':
+    def classify_file_type_to_file_enum(self, file_name: str) -> FileTypeEnum:
+
+
+        images_extensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg"]
+        videos_extensions = [".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv"]
+        audio_extensions = [".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a"]
+        documents_extensions = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".rtf"]
+
+        file_extension = file_name.split('.')[-1].lower()
+
+        if file_extension in images_extensions:
             return FileTypeEnum.IMAGE
-        elif main_type == 'video':
+        elif file_extension in videos_extensions:
             return FileTypeEnum.VIDEO
-        elif main_type == 'audio':
+        elif file_extension in audio_extensions:
             return FileTypeEnum.AUDIO
-        elif main_type in ['application', 'text']:
+        elif file_extension in documents_extensions:
             return FileTypeEnum.DOCUMENT
         else:
             return FileTypeEnum.OTHER

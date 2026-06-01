@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     RUSTF_BUCKET_NAME: str = None
     RUSTF_REGION: str = None
 
+    PYNOTE_MODEL: str = "pyannote/speaker-diarization-community-1"
+    HUGGINGFACE_TOKEN: str = None
+
     model_config = SettingsConfigDict(env_file=".env")
 
 
