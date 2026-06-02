@@ -18,3 +18,14 @@ dependencies = [
     "sqlmodel>=0.0.38",
     "torch>=2.12.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["src/tests"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.0",
+    "pre-commit>=4.6.0",
+    "pytest>=8.0.0",
+    "pytest-mock>=3.14.0",
+]

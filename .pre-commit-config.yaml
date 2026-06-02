@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: pytest
+        name: Run test suite
+        entry: uv run pytest src/tests/ --tb=short -q
+        language: system
+        pass_filenames: false
+        always_run: true
