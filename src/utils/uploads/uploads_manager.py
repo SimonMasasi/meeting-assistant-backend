@@ -31,25 +31,25 @@ class UploadsManager:
         sha256_hash.update(file_bytes)
         return sha256_hash.hexdigest()
     
-    def classify_file_type_to_file_enum(self, file_name: str) -> FileTypeEnum:
+    def classify_file_type_to_file_enum(self, file_name: str):
 
 
-        images_extensions = [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".svg"]
-        videos_extensions = [".mp4", ".avi", ".mov", ".wmv", ".flv", ".mkv"]
-        audio_extensions = [".mp3", ".wav", ".aac", ".flac", ".ogg", ".m4a"]
-        documents_extensions = [".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt", ".rtf"]
+        images_extensions = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "svg"]
+        videos_extensions = ["mp4", "avi", "mov", "wmv", "flv", "mkv"]
+        audio_extensions = ["mp3", "wav", "aac", "flac", "ogg", "m4a"]
+        documents_extensions = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf"]
 
         file_extension = file_name.split('.')[-1].lower()
 
         if file_extension in images_extensions:
-            return FileTypeEnum.IMAGE
+            return FileTypeEnum.IMAGE.value
         elif file_extension in videos_extensions:
-            return FileTypeEnum.VIDEO
+            return FileTypeEnum.VIDEO.value
         elif file_extension in audio_extensions:
-            return FileTypeEnum.AUDIO
+            return FileTypeEnum.AUDIO.value
         elif file_extension in documents_extensions:
-            return FileTypeEnum.DOCUMENT
+            return FileTypeEnum.DOCUMENT.value
         else:
-            return FileTypeEnum.OTHER
+            return FileTypeEnum.OTHER.value
     
     

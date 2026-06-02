@@ -50,7 +50,7 @@ class UploadService:
                 mimetype=file_mimetype,
                 file_path=file_path,
                 file_hash=file_hash,
-                file_type=self.upload_provider.classify_file_type_to_file_enum(file.filename).value,
+                file_type=self.upload_provider.classify_file_type_to_file_enum(file.filename),
                 content_type=file.content_type,
                 
             )

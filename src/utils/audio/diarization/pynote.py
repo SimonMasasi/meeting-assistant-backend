@@ -18,7 +18,7 @@ class PyNoteDiarization:
         results = []
         with ProgressHook() as progress_hook:
             diarization = self.pipeline(wav_audio_bytes , hook=progress_hook)
-            for turn, _, speaker in diarization.itertracks(yield_label=True):
+            for turn, speaker in diarization.speaker_diarization:
                 results.append({
                     "start": turn.start,
                     "end": turn.end,
