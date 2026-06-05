@@ -12,7 +12,7 @@ def classify_file_type_to_folder(file_bytes: bytes) -> str:
         
         
 
-def _iter_file_chunks(file_stream, chunk_size: int = 1024 * 1024):
+def iter_file_chunks(file_stream, chunk_size: int = 1024 * 1024):
     while True:
         chunk = file_stream.read(chunk_size)
         if not chunk:

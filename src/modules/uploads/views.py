@@ -6,7 +6,7 @@ from .services import UploadService
 from src.shared.dtos import SingleResponse
 from .models import UploadedFile
 from src.shared.dependencies import get_current_user
-from src.utils.helper_functions import _iter_file_chunks
+from src.utils.helper_functions import iter_file_chunks
 
 
 uploads_router = APIRouter(prefix="/uploads", tags=["uploads"])
@@ -28,7 +28,7 @@ def get_file(file_id: str):
 
     safe_filename = re.sub(r'[\r\n"\\]', '_', file_metadata.filename)
     return StreamingResponse(
-        content=_iter_file_chunks(file_stream),
+        content=iter_file_chunks(file_stream),
         media_type=file_metadata.mimetype,
         headers={"Content-Disposition": f'attachment; filename="{safe_filename}"'},
         background=BackgroundTask(file_stream.close),
