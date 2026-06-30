@@ -19,6 +19,14 @@ class Meeting(BaseModel, table=True):
     start_time: datetime = Field(default_factory=datetime.now)
     end_time: datetime| None = None
     created_by_id: int = Field(foreign_key="users.id" , sa_type=BigInteger() , exclude=True)
+    # Opaque JSON bag of the desktop client's presentation-only fields (status,
+    # source, tags, host, date/time, views, attendees, durationLabel, language,
+    # createdAt). The backend stores it verbatim so cloud-mode meetings round-trip
+    # losslessly; title/description remain first-class columns.
+    client_meta: str | None = None
+    # Cached AI summary (SummaryDTO as JSON), produced by cloud summarization. Lets
+    # the client read a generated summary back without re-billing the LLM.
+    summary_json: str | None = None
         
     @computed_field
     @property
@@ -49,6 +57,8 @@ class MeetingRecording(BaseModel, table=True):
 
     start_time: str | None = None
     end_time: str | None = None
+    # Transcribed text for this diarized segment (populated by cloud transcription).
+    text: str | None = None
 
 
     @computed_field

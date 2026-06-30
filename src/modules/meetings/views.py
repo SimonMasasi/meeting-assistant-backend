@@ -4,7 +4,7 @@ from src.modules.auth.models import User
 from src.shared.dtos import  ListResponse ,SingleResponse
 from fastapi import Query
 from typing import Annotated
-from .dtos import MeetingInputDTO , MeetingFilteringInputDTO, MeetingRecordingFilteringInputDTO , MeetingRecordingInputDto
+from .dtos import MeetingInputDTO , MeetingUpdateDTO , MeetingFilteringInputDTO, MeetingRecordingFilteringInputDTO , MeetingRecordingInputDto
 from .services import MeetingService
 from src.shared.dependencies import get_current_user
 
@@ -29,3 +29,21 @@ def add_meeting_recording(input: MeetingRecordingInputDto, current_user: User = 
 @meeting_router.get("/get_meeting_recordings")
 def get_meeting_recordings(params: Annotated[MeetingRecordingFilteringInputDTO, Query()]) -> ListResponse[MeetingRecording]:
     return meeting_service.get_meeting_recordings(params)
+
+
+# Path-parameter routes are declared last so they don't shadow the literal
+# `/meetings/get_meetings` and `/meetings/get_meeting_recordings` routes above.
+
+@meeting_router.get("/{meeting_id}")
+def get_meeting(meeting_id: str, current_user: User = Depends(get_current_user)) -> SingleResponse[Meeting]:
+    return meeting_service.get_meeting(meeting_id, current_user.id)
+
+
+@meeting_router.put("/{meeting_id}")
+def update_meeting(meeting_id: str, update_input: MeetingUpdateDTO, current_user: User = Depends(get_current_user)) -> SingleResponse[Meeting]:
+    return meeting_service.update_meeting(meeting_id, update_input, current_user.id)
+
+
+@meeting_router.delete("/{meeting_id}")
+def delete_meeting(meeting_id: str, current_user: User = Depends(get_current_user)) -> SingleResponse[None]:
+    return meeting_service.delete_meeting(meeting_id, current_user.id)

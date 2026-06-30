@@ -2,6 +2,7 @@ from src.utils.uploads.providers.local_uploads import LocalUploads
 from src.utils.uploads.providers.rustf_uploads import RustfUploads
 from src.shared.enums import FileTypeEnum
 import magic
+import hashlib
 from config import SETTINGS
 
 
@@ -26,7 +27,6 @@ class UploadsManager:
         return magic.from_buffer(file_bytes, mime=True)
     
     def calculate_file_hash(self, file_bytes: bytes) -> str:
-        import hashlib
         sha256_hash = hashlib.sha256()
         sha256_hash.update(file_bytes)
         return sha256_hash.hexdigest()
