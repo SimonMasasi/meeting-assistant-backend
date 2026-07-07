@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     # Whisper model size for transcription (tiny|base|small|medium|large-v3).
     WHISPER_MODEL: str = "base"
 
+    # Soniox cloud STT + speaker diarization (preferred for transcription when
+    # set; otherwise the local Whisper + pyannote pipeline is used).
+    SONIOX_API_KEY: str | None = None
+    SONIOX_BASE_URL: str = "https://api.soniox.com"
+    SONIOX_MODEL: str = "stt-async-v5"
+
     model_config = SettingsConfigDict(env_file=".env")
 
 

@@ -1,13 +1,15 @@
-"""Cloud inference: transcription (Whisper ASR + pyannote diarization) and
+"""Cloud inference: transcription (Soniox cloud STT with diarization when
+SONIOX_API_KEY is set, otherwise local Whisper ASR + pyannote diarization) and
 summarization (any OpenAI-compatible chat endpoint).
 
 Summarization is dependency-light (httpx) and configured purely via env
-(`LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`). Transcription additionally needs
-`faster-whisper` installed on the server (`uv add faster-whisper`); it is
+(`LLM_BASE_URL`/`LLM_API_KEY`/`LLM_MODEL`). Local transcription additionally
+needs `faster-whisper` installed on the server (`uv add faster-whisper`); it is
 imported lazily so the rest of the API runs without it.
 """
 import json
 import logging
+import re
 import tempfile
 
 import httpx
@@ -18,6 +20,8 @@ from src.shared.database import engine
 from src.modules.meetings.models import Meeting, MeetingRecording, MeetingSpeaker
 from src.modules.uploads.services import UploadService
 from src.utils.audio.speaker_diarization import SpeakerDiarizationService
+from src.utils.audio.transcription.segments import SpeechSegment
+from src.utils.audio.transcription.soniox import SonioxTranscriber
 from .dtos import SummaryDTO, TranscriptSegmentDTO
 
 logger = logging.getLogger(__name__)
@@ -90,49 +94,123 @@ class InferenceService:
             return None
         return SummaryDTO.model_validate_json(meeting.summary_json)
 
-    # ----- Transcription (Whisper + diarization) ---------------------------
+    # ----- Transcription (Soniox cloud, or local Whisper + diarization) ----
 
     def transcribe(self, meeting_id: str, file_id: str, current_user_id: int) -> list[TranscriptSegmentDTO]:
-        """Diarize + transcribe an uploaded audio file, persisting one segment per
-        ASR line (with the best-overlapping speaker) and returning them."""
-        ok, message, file_stream, _ = self.upload_service.get_file(file_id)
+        """Transcribe + diarize an uploaded audio file, persisting one segment per
+        speaker turn and returning them. Uses Soniox when SONIOX_API_KEY is set
+        (falling back to the local pipeline on failure), else Whisper + pyannote."""
+        ok, message, file_stream, file_metadata = self.upload_service.get_file(file_id)
         if not ok:
             raise ValueError(message)
         audio_bytes = file_stream.read() if hasattr(file_stream, "read") else bytes(file_stream)
 
-        # Speaker timeline (creates/reuses MeetingSpeaker rows).
-        speakers = self.diarization_service.diarize(audio_bytes, int(meeting_id), current_user_id)
+        segments: list[SpeechSegment] | None = None
+        if SETTINGS.SONIOX_API_KEY and SETTINGS.SONIOX_API_KEY.strip():
+            try:
+                logger.info("Transcribing meeting %s file %s with Soniox", meeting_id, file_id)
+                segments = SonioxTranscriber().transcribe(
+                    audio_bytes,
+                    filename=file_metadata.filename if file_metadata else "audio.wav",
+                )
+            except Exception as e:
+                logger.warning("Soniox transcription failed (%s); falling back to local pipeline", e)
+        if segments is None:
+            logger.info("Transcribing meeting %s file %s with local Whisper + pyannote", meeting_id, file_id)
+            segments = self._transcribe_local(audio_bytes)
 
-        # ASR over the whole file via faster-whisper (decodes through ffmpeg).
+        return self._persist_segments(int(meeting_id), int(file_id), current_user_id, segments)
+
+    def _transcribe_local(self, audio_bytes: bytes) -> list[SpeechSegment]:
+        # Speaker timeline first, then ASR over the whole file via faster-whisper
+        # (decodes through ffmpeg); each ASR line gets its best-overlapping speaker.
+        turns = self.diarization_service.diarize_turns(audio_bytes)
         whisper = self._load_whisper()
         with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
             tmp.write(audio_bytes)
             tmp.flush()
             asr_segments, _info = whisper.transcribe(tmp.name)
             asr = [(float(s.start), float(s.end), (s.text or "").strip()) for s in asr_segments]
+        return [
+            SpeechSegment(
+                speaker_key=_best_speaker_label(turns, start, end),
+                start_ms=int(start * 1000),
+                end_ms=int(end * 1000),
+                text=text,
+            )
+            for start, end, text in asr
+            if text
+        ]
 
+    def _persist_segments(
+        self, meeting_id: int, file_id: int, current_user_id: int, segments: list[SpeechSegment]
+    ) -> list[TranscriptSegmentDTO]:
+        """Persist provider-neutral segments as MeetingRecording rows, creating one
+        MeetingSpeaker per provider speaker. Re-transcribing a file replaces its
+        previous transcript rows (and speakers no other file still references)."""
         results: list[TranscriptSegmentDTO] = []
         with Session(engine) as session:
-            for start, end, text in asr:
-                if not text:
-                    continue
-                speaker = _best_speaker(speakers, start, end)
-                recording = MeetingRecording(
-                    file_id=int(file_id),
-                    meeting_id=int(meeting_id),
-                    speaker_id=speaker.id if speaker else None,
-                    start_time=str(start),
-                    end_time=str(end),
-                    text=text,
+            old = session.exec(
+                select(MeetingRecording).where(
+                    MeetingRecording.meeting_id == meeting_id,
+                    MeetingRecording.file_id == file_id,
                 )
-                session.add(recording)
+            ).all()
+            old_speaker_ids = {r.speaker_id for r in old if r.speaker_id is not None}
+            for r in old:
+                session.delete(r)
+            for sid in old_speaker_ids:
+                still_used = session.exec(
+                    select(MeetingRecording).where(
+                        MeetingRecording.speaker_id == sid,
+                        MeetingRecording.meeting_id == meeting_id,
+                        MeetingRecording.file_id != file_id,
+                    )
+                ).first()
+                if not still_used:
+                    orphan = session.exec(
+                        select(MeetingSpeaker).where(MeetingSpeaker.id == sid)
+                    ).first()
+                    if orphan:
+                        session.delete(orphan)
+
+            existing_names = session.exec(
+                select(MeetingSpeaker.speaker_name).where(MeetingSpeaker.meeting_id == meeting_id)
+            ).all()
+            next_num = _next_speaker_number(existing_names)
+
+            # Provider speaker key -> row, scoped to this run only, so speakers
+            # from different files never collide under one display name.
+            speaker_rows: dict[str, MeetingSpeaker] = {}
+            for seg in segments:
+                speaker = None
+                if seg.speaker_key is not None:
+                    if seg.speaker_key not in speaker_rows:
+                        speaker_rows[seg.speaker_key] = MeetingSpeaker(
+                            speaker_name=f"Speaker {next_num + len(speaker_rows)}",
+                            meeting_id=meeting_id,
+                            created_by_id=current_user_id,
+                        )
+                        session.add(speaker_rows[seg.speaker_key])
+                    speaker = speaker_rows[seg.speaker_key]
+                session.add(
+                    MeetingRecording(
+                        file_id=file_id,
+                        meeting_id=meeting_id,
+                        # id is client-generated, so it's valid before commit.
+                        speaker_id=speaker.id if speaker else None,
+                        start_time=str(seg.start_ms / 1000.0),
+                        end_time=str(seg.end_ms / 1000.0),
+                        text=seg.text,
+                    )
+                )
                 results.append(
                     TranscriptSegmentDTO(
-                        speaker_label=speaker.speaker_name if speaker else "Speaker 1",
+                        speaker_label=speaker.speaker_name if speaker else "Unknown speaker",
                         speaker_name=speaker.speaker_name if speaker else None,
-                        start_ms=int(start * 1000),
-                        end_ms=int(end * 1000),
-                        text=text,
+                        start_ms=seg.start_ms,
+                        end_ms=seg.end_ms,
+                        text=seg.text,
                     )
                 )
             session.commit()
@@ -164,7 +242,7 @@ class InferenceService:
             speaker = session.exec(
                 select(MeetingSpeaker).where(MeetingSpeaker.id == recording.speaker_id)
             ).first()
-        label = speaker.speaker_name if speaker else "Speaker 1"
+        label = speaker.speaker_name if speaker else "Unknown speaker"
         return TranscriptSegmentDTO(
             speaker_label=label,
             speaker_name=speaker.speaker_name if speaker else None,
@@ -186,14 +264,26 @@ class InferenceService:
         return self._whisper
 
 
-def _best_speaker(speakers: list[tuple[MeetingSpeaker, str, str]], start: float, end: float):
-    """The diarization speaker whose interval overlaps [start, end] the most."""
+def _best_speaker_label(turns: list[tuple[str, float, float]], start: float, end: float) -> str | None:
+    """The diarization speaker label whose turn overlaps [start, end] the most,
+    or None when nothing overlaps."""
     best, best_overlap = None, 0.0
-    for speaker, s, e in speakers:
-        overlap = max(0.0, min(end, float(e)) - max(start, float(s)))
+    for label, s, e in turns:
+        overlap = max(0.0, min(end, e) - max(start, s))
         if overlap > best_overlap:
-            best_overlap, best = overlap, speaker
+            best_overlap, best = overlap, label
     return best
+
+
+def _next_speaker_number(existing_names: list[str]) -> int:
+    """1 + the highest N among existing "Speaker N" names (1 when there are none),
+    so new speakers never reuse a display name already taken in the meeting."""
+    highest = 0
+    for name in existing_names:
+        match = re.fullmatch(r"Speaker (\d+)", name or "")
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return highest + 1
 
 
 def _parse_summary(raw: str) -> dict:
