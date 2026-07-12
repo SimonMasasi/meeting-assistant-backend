@@ -61,7 +61,7 @@ class InferenceService:
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": f"Summarize the following meeting transcript.\n\nTranscript:\n{transcript_text}"},
             ],
-            "max_tokens": 1024,
+            "max_completion_tokens": 1024,
         }
         resp = httpx.post(url, json=body, headers=headers, timeout=120)
         if resp.status_code >= 400:
@@ -192,12 +192,17 @@ class InferenceService:
                             created_by_id=current_user_id,
                         )
                         session.add(speaker_rows[seg.speaker_key])
+                        # Flush the speaker INSERT now so the row exists before any
+                        # MeetingRecording references its id. There is no ORM
+                        # relationship() between the two models, so the unit-of-work
+                        # won't otherwise order the speaker INSERT before the
+                        # recording INSERT within a single commit.
+                        session.flush()
                     speaker = speaker_rows[seg.speaker_key]
                 session.add(
                     MeetingRecording(
                         file_id=file_id,
                         meeting_id=meeting_id,
-                        # id is client-generated, so it's valid before commit.
                         speaker_id=speaker.id if speaker else None,
                         start_time=str(seg.start_ms / 1000.0),
                         end_time=str(seg.end_ms / 1000.0),

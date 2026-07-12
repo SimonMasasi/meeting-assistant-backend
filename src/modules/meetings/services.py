@@ -74,12 +74,15 @@ class MeetingService:
             ).first()
             if not meeting:
                 return SingleResponse(response=ResponseObjects.get_response(9, "Meeting not found"), data=None)
-            # Remove children first (no ON DELETE CASCADE on the FKs): recordings
-            # reference speakers, so recordings go before speakers.
+            # Remove children in FK-safe order and flush each step so the DB
+            # sees the deletes before the next constraint is checked.
+            # recordings → speakers → meeting  (recordings reference speakers)
             for recording in session.exec(select(MeetingRecording).where(MeetingRecording.meeting_id == mid)).all():
                 session.delete(recording)
+            session.flush()
             for speaker in session.exec(select(MeetingSpeaker).where(MeetingSpeaker.meeting_id == mid)).all():
                 session.delete(speaker)
+            session.flush()
             session.delete(meeting)
             session.commit()
         return SingleResponse(response=ResponseObjects.get_response(1), data=None)
