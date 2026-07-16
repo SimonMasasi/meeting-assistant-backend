@@ -2,6 +2,10 @@ import bcrypt
 
 
 class PasswordManager:
+
+    def __init__(self):
+        pass
+
     @staticmethod
     def hash_password(plain_password: str) -> str:
         salt = bcrypt.gensalt()

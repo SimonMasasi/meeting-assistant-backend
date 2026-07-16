@@ -1,4 +1,4 @@
-from .dtos import PageObject , ListResponse , ResponseObjects ,BaseFilteringInput
+from .dtos import PageObject , ListResponse , ResponseObjects ,BaseFilteringInput, TimeRange
 from typing import TypeVar
 
 from src.shared.database import engine 
@@ -30,6 +30,9 @@ def build_paginated_data(select_function: SelectOfScalar[T],filtering: BaseFilte
             if filtering.search_term:
                 select_function = apply_search_filter(select_function, filtering.search_term)
 
+            if filtering.time_range:
+                select_function = apply_date_range_filter(select_function, filtering.time_range)
+
             items = session.exec(select_function.offset(offset).limit(size_requested)).all()
 
         page_object = PageObject.get_page(total_items=total_items,current_page_number=current_page_number,size_requested=size_requested)
@@ -54,5 +57,17 @@ def apply_search_filter(select_function: SelectOfScalar[T] , search_term: str) -
     ]
     if conditions:
         select_function = select_function.where(or_(*conditions))
+    return select_function
+
+def apply_date_range_filter(select_function: SelectOfScalar[T], time_range: TimeRange)  -> SelectOfScalar[T]:
+    # apply date range filter to all date values in a model from the select function
+    if time_range == TimeRange.DAILY:
+        select_function = select_function.where(func.date(select_function.selected_columns["created_at"]) == func.current_date())
+    elif time_range == TimeRange.WEEKLY:
+        select_function = select_function.where(func.date(select_function.selected_columns["created_at"]) >= func.current_date() - func.interval('7 days'))
+    elif time_range == TimeRange.MONTHLY:
+        select_function = select_function.where(func.date(select_function.selected_columns["created_at"]) >= func.current_date() - func.interval('30 days'))
+    elif time_range == TimeRange.YEARLY:
+        select_function = select_function.where(func.date(select_function.selected_columns["created_at"]) >= func.current_date() - func.interval('365 days'))
     return select_function
     
