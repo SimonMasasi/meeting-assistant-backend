@@ -7,12 +7,16 @@ Summarization is dependency-light (httpx) and configured purely via env
 needs `faster-whisper` installed on the server (`uv add faster-whisper`); it is
 imported lazily so the rest of the API runs without it.
 """
+import contextlib
+import io
 import json
 import logging
 import re
 import tempfile
+import wave
 
 import httpx
+from fastapi import UploadFile
 from sqlmodel import Session, select
 
 from config import SETTINGS
@@ -22,9 +26,17 @@ from src.modules.uploads.services import UploadService
 from src.utils.audio.speaker_diarization import SpeakerDiarizationService
 from src.utils.audio.transcription.segments import SpeechSegment
 from src.utils.audio.transcription.soniox import SonioxTranscriber
-from .dtos import SummaryDTO, TranscriptSegmentDTO
+from .dtos import SummaryDTO, TranscriptSegmentDTO, UtteranceTranscriptDTO
 
 logger = logging.getLogger(__name__)
+
+# Guards for the live single-utterance endpoint. The client guarantees short
+# 16 kHz mono clips; these just fence off abuse / misuse cheaply.
+MAX_UTTERANCE_BYTES = 2 * 1024 * 1024
+MAX_UTTERANCE_MS = 60 * 1000
+# Below the client's 15 s timeout, with margin, so a slow backend surfaces as our
+# own readable failure rather than a client-side transport timeout.
+UTTERANCE_STT_TIMEOUT_S = 12.0
 
 SYSTEM_PROMPT = (
     "You are an assistant that summarizes meeting transcripts. Reply with ONLY a "
@@ -141,6 +153,82 @@ class InferenceService:
             for start, end, text in asr
             if text
         ]
+
+    # ----- Live single-utterance transcription (stateless, no DB) ----------
+
+    def transcribe_utterance(self, file: UploadFile, language: str = "en") -> UtteranceTranscriptDTO:
+        """Transcribe one short speech utterance and return its text.
+
+        Stateless: no meeting, no diarization, no persistence — a pure function
+        from audio to text that powers cloud-mode live transcription, so it
+        favors latency over batch-grade accuracy and never touches the
+        transcript store. Non-speech returns an empty string (not an error) so
+        the client's VAD false positives are dropped silently. Guard violations
+        (too big / too long / not a WAV) raise ValueError for the view to turn
+        into a readable ``status: false``."""
+        file.file.seek(0, 2)
+        size = file.file.tell()
+        file.file.seek(0)
+        if size > MAX_UTTERANCE_BYTES:
+            raise ValueError(f"Audio exceeds the {MAX_UTTERANCE_BYTES // (1024 * 1024)} MB limit.")
+        audio_bytes = file.file.read()
+
+        duration_ms = _wav_duration_ms(audio_bytes)  # raises ValueError on a non-WAV body
+        if duration_ms > MAX_UTTERANCE_MS:
+            raise ValueError(f"Audio exceeds the {MAX_UTTERANCE_MS // 1000} s limit.")
+
+        text, detected_language, confidence = self._utterance_text(
+            audio_bytes, file.filename or "utterance.wav", language
+        )
+        return UtteranceTranscriptDTO(
+            text=text.strip(),
+            duration_ms=duration_ms,
+            language=detected_language or (language or None),
+            confidence=confidence,
+        )
+
+    def _utterance_text(
+        self, audio_bytes: bytes, filename: str, language: str
+    ) -> tuple[str, str | None, float | None]:
+        """(text, detected_language, confidence) for one utterance, via the
+        configured synchronous STT backend (cloud when STT_BASE_URL is set, else
+        the local Whisper model — no diarization on either path)."""
+        if SETTINGS.STT_BASE_URL and SETTINGS.STT_BASE_URL.strip():
+            return self._utterance_text_cloud(audio_bytes, filename, language)
+        return self._utterance_text_local(audio_bytes, language)
+
+    def _utterance_text_cloud(
+        self, audio_bytes: bytes, filename: str, language: str
+    ) -> tuple[str, str | None, float | None]:
+        url = f"{SETTINGS.STT_BASE_URL.rstrip('/')}/audio/transcriptions"
+        headers = {}
+        if SETTINGS.STT_API_KEY:
+            headers["authorization"] = f"Bearer {SETTINGS.STT_API_KEY}"
+        data = {"model": SETTINGS.STT_MODEL, "response_format": "json"}
+        if language:
+            data["language"] = language  # ISO-639-1 hint, not a constraint
+        resp = httpx.post(
+            url,
+            headers=headers,
+            data=data,
+            files={"file": (filename, audio_bytes, "audio/wav")},
+            timeout=UTTERANCE_STT_TIMEOUT_S,
+        )
+        if resp.status_code >= 400:
+            raise ValueError(f"Transcription backend failed ({resp.status_code}): {resp.text[:200]}")
+        body = resp.json()
+        return (body.get("text") or ""), body.get("language"), None
+
+    def _utterance_text_local(
+        self, audio_bytes: bytes, language: str
+    ) -> tuple[str, str | None, float | None]:
+        whisper = self._load_whisper()
+        with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
+            tmp.write(audio_bytes)
+            tmp.flush()
+            segments, info = whisper.transcribe(tmp.name, language=language or None)
+            text = " ".join((s.text or "").strip() for s in segments).strip()
+        return text, getattr(info, "language", None), getattr(info, "language_probability", None)
 
     def _persist_segments(
         self, meeting_id: int, file_id: int, current_user_id: int, segments: list[SpeechSegment]
@@ -267,6 +355,20 @@ class InferenceService:
                 ) from e
             self._whisper = WhisperModel(SETTINGS.WHISPER_MODEL)
         return self._whisper
+
+
+def _wav_duration_ms(audio_bytes: bytes) -> int:
+    """Duration of a PCM WAV from its header, without decoding samples. Raises
+    ValueError on anything that isn't a readable WAV."""
+    try:
+        with contextlib.closing(wave.open(io.BytesIO(audio_bytes), "rb")) as wav:
+            frames = wav.getnframes()
+            rate = wav.getframerate()
+    except (wave.Error, EOFError) as e:
+        raise ValueError("Audio must be a valid WAV file.") from e
+    if not rate:
+        raise ValueError("Audio must be a valid WAV file.")
+    return int(frames / rate * 1000)
 
 
 def _best_speaker_label(turns: list[tuple[str, float, float]], start: float, end: float) -> str | None:

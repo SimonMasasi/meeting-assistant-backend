@@ -2,6 +2,7 @@
 vs local Whisper + pyannote), persistence, and transcript read-back."""
 import io
 import logging
+import wave
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -20,6 +21,7 @@ from src.utils.generators import Generator
 
 TRANSCRIBE_URL = "/inference/transcribe/{meeting_id}"
 TRANSCRIPT_URL = "/inference/transcript/{meeting_id}"
+UTTERANCE_URL = "/inference/transcribe-utterance"
 
 _SONIOX_SEGMENTS = [
     SpeechSegment(speaker_key="1", start_ms=0, end_ms=4000, text="Hello everyone."),
@@ -263,3 +265,135 @@ class TestGetTranscript:
         assert [seg["text"] for seg in body["data"]] == [
             "Hello everyone.", "Hi, thanks for joining.", "Let's get started.",
         ]
+
+
+def _wav_bytes(seconds: float = 1.0, sample_rate: int = 16000) -> bytes:
+    """A valid 16 kHz mono 16-bit PCM WAV of silence — the exact format the
+    desktop client sends. Only the header is read for the duration guard."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate)
+        wav.writeframes(b"\x00\x00" * int(sample_rate * seconds))
+    return buf.getvalue()
+
+
+def _post_utterance(auth_client: TestClient, audio: bytes, language: str | None = None):
+    url = UTTERANCE_URL if language is None else f"{UTTERANCE_URL}?language={language}"
+    return auth_client.post(url, files={"file": ("utterance.wav", io.BytesIO(audio), "audio/wav")})
+
+
+class TestTranscribeUtterance:
+    def test_returns_trimmed_text_and_metadata(self, auth_client):
+        with patch(
+            "src.modules.inference.services.InferenceService._utterance_text",
+            return_value=("  so what we agreed on last week  ", "en", 0.98),
+        ) as stt:
+            resp = _post_utterance(auth_client, _wav_bytes(seconds=2.0), language="en")
+
+        body = resp.json()
+        assert resp.status_code == 200
+        assert body["response"]["status"] is True
+        assert body["response"]["message"] == "Transcribed"
+        assert body["data"]["text"] == "so what we agreed on last week"
+        assert body["data"]["durationMs"] == 2000
+        assert body["data"]["language"] == "en"
+        assert body["data"]["confidence"] == 0.98
+        stt.assert_called_once()
+
+    def test_silence_returns_empty_text_not_error(self, auth_client):
+        # The client's VAD has false positives; empty must be status:true, no 4xx.
+        with patch(
+            "src.modules.inference.services.InferenceService._utterance_text",
+            return_value=("", None, None),
+        ):
+            resp = _post_utterance(auth_client, _wav_bytes(seconds=0.5))
+
+        body = resp.json()
+        assert resp.status_code == 200
+        assert body["response"]["status"] is True
+        assert body["data"]["text"] == ""
+
+    def test_language_query_param_is_passed_through(self, auth_client):
+        with patch(
+            "src.modules.inference.services.InferenceService._utterance_text",
+            return_value=("hola", "es", None),
+        ) as stt:
+            _post_utterance(auth_client, _wav_bytes(), language="es")
+        assert stt.call_args.args[2] == "es"
+
+    def test_defaults_language_to_en(self, auth_client):
+        with patch(
+            "src.modules.inference.services.InferenceService._utterance_text",
+            return_value=("hi", None, None),
+        ) as stt:
+            _post_utterance(auth_client, _wav_bytes())
+        assert stt.call_args.args[2] == "en"
+
+    def test_rejects_oversize_audio(self, auth_client):
+        # Over 2 MB: status false with a readable message, and STT never runs.
+        big = b"\x00" * (2 * 1024 * 1024 + 1)
+        with patch(
+            "src.modules.inference.services.InferenceService._utterance_text"
+        ) as stt:
+            resp = _post_utterance(auth_client, big)
+
+        body = resp.json()
+        assert resp.status_code == 200
+        assert body["response"]["status"] is False
+        assert "MB limit" in body["response"]["message"]
+        assert body["data"] is None
+        stt.assert_not_called()
+
+    def test_rejects_audio_longer_than_60s(self, auth_client):
+        with patch(
+            "src.modules.inference.services.InferenceService._utterance_text"
+        ) as stt:
+            resp = _post_utterance(auth_client, _wav_bytes(seconds=61))
+
+        body = resp.json()
+        assert body["response"]["status"] is False
+        assert "60 s limit" in body["response"]["message"]
+        stt.assert_not_called()
+
+    def test_rejects_non_wav_body(self, auth_client):
+        with patch(
+            "src.modules.inference.services.InferenceService._utterance_text"
+        ) as stt:
+            resp = _post_utterance(auth_client, b"this is not a wav file at all")
+
+        body = resp.json()
+        assert body["response"]["status"] is False
+        assert "WAV" in body["response"]["message"]
+        stt.assert_not_called()
+
+    def test_backend_failure_is_readable_not_500(self, auth_client):
+        with patch(
+            "src.modules.inference.services.InferenceService._utterance_text",
+            side_effect=RuntimeError("connection refused"),
+        ):
+            resp = _post_utterance(auth_client, _wav_bytes())
+
+        body = resp.json()
+        assert resp.status_code == 200
+        assert body["response"]["status"] is False
+        assert body["data"] is None
+
+    def test_writes_nothing_to_transcript_store(self, auth_client):
+        with patch(
+            "src.modules.inference.services.InferenceService._utterance_text",
+            return_value=("some words", "en", None),
+        ):
+            _post_utterance(auth_client, _wav_bytes())
+
+        with Session(engine) as session:
+            assert session.exec(select(MeetingRecording)).all() == []
+            assert session.exec(select(MeetingSpeaker)).all() == []
+
+    def test_requires_authentication(self, client):
+        resp = client.post(
+            UTTERANCE_URL,
+            files={"file": ("utterance.wav", io.BytesIO(_wav_bytes()), "audio/wav")},
+        )
+        assert resp.status_code in (401, 403)

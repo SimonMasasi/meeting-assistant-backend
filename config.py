@@ -37,6 +37,16 @@ class Settings(BaseSettings):
     SONIOX_BASE_URL: str = "https://api.soniox.com"
     SONIOX_MODEL: str = "stt-async-v5"
 
+    # Live single-utterance STT for cloud-mode live transcription
+    # (POST /inference/transcribe-utterance). Any OpenAI-compatible *synchronous*
+    # /audio/transcriptions endpoint (OpenAI, or a local server). Kept separate
+    # from Soniox because that path is async/polling and too slow for the live
+    # critical path. When STT_BASE_URL is empty the local faster-whisper model
+    # (WHISPER_MODEL) is used instead — single utterance, no diarization.
+    STT_BASE_URL: str = ""
+    STT_API_KEY: str | None = None
+    STT_MODEL: str = "whisper-1"
+
     model_config = SettingsConfigDict(env_file=".env")
 
 

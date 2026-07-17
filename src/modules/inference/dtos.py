@@ -14,6 +14,14 @@ class TranscriptSegmentDTO(CamelCaseModel):
     text: str
 
 
+class UtteranceTranscriptDTO(CamelCaseModel):
+    # Trimmed transcript for one live utterance; "" for non-speech (not an error).
+    text: str
+    duration_ms: int | None = None
+    language: str | None = None
+    confidence: float | None = None
+
+
 class SummaryDTO(CamelCaseModel):
     summary: str
     key_points: list[str]
