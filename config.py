@@ -7,7 +7,7 @@ class Settings(BaseSettings):
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_SECONDS: int = 300
+    JWT_ACCESS_TOKEN_EXPIRE_SECONDS: int = 60 * 60 * 24 * 7
     JWT_REFRESH_TOKEN_EXPIRE_SECONDS: int = 60 * 60 * 24 * 7
     JWT_PASSWORD_RESET_TOKEN_EXPIRE_SECONDS: int = 60 * 60 * 24
     

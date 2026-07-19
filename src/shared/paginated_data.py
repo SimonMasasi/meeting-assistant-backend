@@ -33,7 +33,7 @@ def build_paginated_data(select_function: SelectOfScalar[T],filtering: BaseFilte
             if filtering.time_range:
                 select_function = apply_date_range_filter(select_function, filtering.time_range)
 
-            items = session.exec(select_function.offset(offset).limit(size_requested)).all()
+            items = session.exec(select_function.offset(offset).limit(size_requested).order_by(select_function.selected_columns["id"].desc())).all()
 
         page_object = PageObject.get_page(total_items=total_items,current_page_number=current_page_number,size_requested=size_requested)
 
