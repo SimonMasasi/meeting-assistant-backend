@@ -5,13 +5,17 @@ from config import SETTINGS
 from src.utils.passwords import PasswordManager
 
 from .models import User, UserAuthToken , UserAuthTokensTypes
-from src.shared.database import engine 
+from src.shared.database import engine
 from sqlmodel import Session, select  , delete
 from src.shared.dtos import  ListResponse
 from src.shared.paginated_data import build_paginated_data
-from  .dtos import UserFilterDTO , UserInputDTO , UserLoginResponseDTO , UserLoginInputDTO , UpdateUserInputDTO , ChangePasswordInputDTO , ForgotPasswordInputDTO , ForgotTokenInputDTO
+from  .dtos import UserFilterDTO , UserInputDTO , UserLoginResponseDTO , UserLoginInputDTO , UpdateUserInputDTO , ChangePasswordInputDTO , ForgotPasswordInputDTO , ForgotTokenInputDTO , GoogleAuthInputDTO
 from src.utils.jwt_auth import JWTAuth
-from src.shared.enums import FileTypeEnum , UserAuthTokensTypes
+from src.shared.enums import FileTypeEnum , UserAuthTokensTypes , AuthProviderEnum
+
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
+from google.auth.exceptions import GoogleAuthError
 
 import logging
 logger = logging.getLogger(__name__)
@@ -31,7 +35,12 @@ class AuthService:
             if not user:
                 logger.warning("Authentication failed for username: %s", input.username)
                 return False, "Invalid username or password", None
-            
+
+            if not user.password:
+                # Google-only account: no local password set, so password login
+                # can never succeed. Steer the user to the Google button.
+                return False, "This account uses Google sign-in", None
+
             if not self.password_manager.verify_password(input.password, user.password):
                 #increment failed login attempts
                 user.failed_login_attempts += 1
@@ -61,8 +70,124 @@ class AuthService:
             )
 
             return True, "Authentication successful", user_login_response
-        
-        
+
+
+    def authenticate_google_user(self, input: GoogleAuthInputDTO) -> tuple[bool , str , UserLoginResponseDTO | None]:
+        """Sign a user in with a Google ID token.
+
+        The ID token is verified against Google (signature, audience, issuer,
+        expiry) before any claim is trusted. Returning users are matched on the
+        stable ``sub`` claim; new/link decisions fall back to email and require
+        Google to have verified that email.
+        """
+        if not SETTINGS.GOOGLE_CLIENT_ID:
+            logger.error("Google sign-in attempted but GOOGLE_CLIENT_ID is not configured")
+            return False, "Google sign-in is not configured", None
+
+        ok, message, claims = self._verify_google_token(input.id_token)
+        if not ok:
+            return False, message, None
+
+        google_sub = claims["sub"]
+        email = (claims.get("email") or "").lower()
+        email_verified = bool(claims.get("email_verified"))
+
+        with Session(engine) as session:
+            # 1. Returning Google user — match on the stable subject id.
+            user = session.exec(select(User).where(User.google_sub == google_sub)).first()
+
+            if user is None:
+                if not email:
+                    return False, "Google account has no email", None
+
+                existing = session.exec(select(User).where(User.email == email)).first()
+                if existing is not None:
+                    # 2. Email matches an existing account. Only link when Google
+                    # has verified the email, otherwise this is an account-takeover
+                    # vector (an attacker asserting someone else's address).
+                    if not email_verified:
+                        return False, "Email is not verified with Google", None
+                    existing.google_sub = google_sub
+                    existing.email_verified = True
+                    user = existing
+                else:
+                    # 3. Brand-new user. Never provision from an unverified email.
+                    if not email_verified:
+                        return False, "Email is not verified with Google", None
+                    user = User(
+                        username=self._generate_unique_username(session, email),
+                        email=email,
+                        password=None,
+                        auth_provider=AuthProviderEnum.GOOGLE,
+                        email_verified=True,
+                        google_sub=google_sub,
+                        first_name=claims.get("given_name"),
+                        last_name=claims.get("family_name"),
+                    )
+
+            if user.account_locked:
+                return False, "Account is locked due to too many failed login attempts", None
+
+            user.failed_login_attempts = 0
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+
+            access_token, refresh_token , expires_in = self.jwt_auth.create_access_token_and_refresh_token(user)
+            user_login_response = UserLoginResponseDTO(
+                access_token=access_token,
+                refresh_token=refresh_token,
+                expires_in=expires_in,
+                user=user
+            )
+
+            return True, "Authentication successful", user_login_response
+
+
+    def _verify_google_token(self, token: str) -> tuple[bool , str , dict | None]:
+        """Verify a Google ID token and return its claims.
+
+        Delegates signature, audience (``aud == GOOGLE_CLIENT_ID``) and expiry
+        checks to google-auth. The issuer is validated explicitly.
+        """
+        try:
+            claims = google_id_token.verify_oauth2_token(
+                token,
+                google_requests.Request(),
+                SETTINGS.GOOGLE_CLIENT_ID,
+            )
+        except ValueError as e:
+            logger.warning("Invalid Google ID token: %s", str(e))
+            return False, "Invalid Google token", None
+        except GoogleAuthError as e:
+            logger.error("Could not verify Google ID token: %s", str(e))
+            return False, "Could not verify Google token", None
+
+        if claims.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+            logger.warning("Google ID token has unexpected issuer: %s", claims.get("iss"))
+            return False, "Invalid Google token", None
+
+        if not claims.get("sub"):
+            return False, "Invalid Google token", None
+
+        return True, "Token verified", claims
+
+
+    def _generate_unique_username(self, session: Session, email: str) -> str:
+        """Derive a unique username from a Google email's local part."""
+        base = "".join(ch for ch in email.split("@")[0].lower() if ch.isalnum() or ch in "._-")
+        base = base or "user"
+        if len(base) < 3:
+            base = f"{base}user"
+
+        candidate = base
+        suffix = 1
+        while session.exec(select(User).where(User.username == candidate)).first() is not None:
+            candidate = f"{base}{suffix}"
+            suffix += 1
+        return candidate
+
+
     def refresh_access_token(self, refresh_token: str) -> tuple[bool , str , UserLoginResponseDTO | None]:
         try:
             payload = self.jwt_auth.decode(refresh_token)

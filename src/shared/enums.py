@@ -16,3 +16,8 @@ class FileTypeEnum(str , enum.Enum):
 class UserAuthTokensTypes(str, enum.Enum):
     ACTIVATE_ACCOUNT = "ACTIVATE_ACCOUNT"
     FORGET_PASSWORD = "FORGET_PASSWORD"
+
+
+class AuthProviderEnum(str, enum.Enum):
+    LOCAL = "LOCAL"
+    GOOGLE = "GOOGLE"

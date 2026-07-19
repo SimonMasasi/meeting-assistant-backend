@@ -10,7 +10,12 @@ class Settings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_SECONDS: int = 60 * 60 * 24 * 7
     JWT_REFRESH_TOKEN_EXPIRE_SECONDS: int = 60 * 60 * 24 * 7
     JWT_PASSWORD_RESET_TOKEN_EXPIRE_SECONDS: int = 60 * 60 * 24
-    
+
+    # Google OAuth. The OAuth 2.0 Client ID of the desktop app. Required to
+    # verify Google ID tokens on POST /auth/google; when empty that endpoint
+    # rejects all requests.
+    GOOGLE_CLIENT_ID: str | None = None
+
     USE_RUSTF_UPLOADS: bool = False
     RUSTF_URL: str = "http://localhost:9000"
     RUSTF_ACCESS_KEY: str = None

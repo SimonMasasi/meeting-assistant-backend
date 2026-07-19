@@ -2,7 +2,7 @@ from sqlmodel import Field , select , Session
 from sqlalchemy import BigInteger
 from pydantic import computed_field
 from src.shared.base_model import BaseModel
-from src.shared.enums import UserTypeEnum , UserAuthTokensTypes
+from src.shared.enums import UserTypeEnum , UserAuthTokensTypes , AuthProviderEnum
 from src.modules.uploads.models import UploadedFile
 from src.shared.database import engine
 from datetime import datetime
@@ -15,7 +15,10 @@ class User(BaseModel, table=True):
 
     username: str = Field(unique=True)
     email: str = Field(unique=True)
-    password: str = Field(exclude=True)
+    password: str | None = Field(default=None, exclude=True)
+    auth_provider: AuthProviderEnum = Field(default=AuthProviderEnum.LOCAL)
+    email_verified: bool = Field(default=False)
+    google_sub: str | None = Field(default=None, unique=True, exclude=True)
     first_name: str | None = Field(default=None)
     last_name: str | None = Field(default=None)
     middle_name: str | None = Field(default=None)

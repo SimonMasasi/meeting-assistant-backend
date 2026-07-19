@@ -3,8 +3,8 @@ from src.modules.auth.models import User
 from src.shared.dtos import  ListResponse, ResponseObjects ,SingleResponse
 from fastapi import Query
 from typing import Annotated
-from .dtos import (ChangePasswordInputDTO, UpdateUserInputDTO, UserFilterDTO, UserInputDTO, UserLoginInputDTO, UserLoginResponseDTO 
-, ForgotPasswordInputDTO , ForgotTokenInputDTO)
+from .dtos import (ChangePasswordInputDTO, UpdateUserInputDTO, UserFilterDTO, UserInputDTO, UserLoginInputDTO, UserLoginResponseDTO
+, ForgotPasswordInputDTO , ForgotTokenInputDTO , GoogleAuthInputDTO)
 from .services import AuthService
 from src.shared.dependencies import get_current_user
 
@@ -32,6 +32,14 @@ def login_user(user_data: UserLoginInputDTO) -> SingleResponse[UserLoginResponse
     if not success:
         return SingleResponse(data=None , response=ResponseObjects.get_response(id=2 , message=message))
     return SingleResponse(data=user_login_response , response=ResponseObjects.get_response(id=1 , message=message))
+
+@auth_router.post("/google")
+def login_with_google(google_data: GoogleAuthInputDTO) -> SingleResponse[UserLoginResponseDTO]:
+    success, message, user_login_response = auth_service.authenticate_google_user(google_data)
+    if not success:
+        return SingleResponse(data=None , response=ResponseObjects.get_response(id=2 , message=message))
+    return SingleResponse(data=user_login_response , response=ResponseObjects.get_response(id=1 , message=message))
+
 
 @auth_router.post("/refresh-token")
 def refresh_access_token(refresh_token: str) -> SingleResponse[UserLoginResponseDTO]:

@@ -41,6 +41,10 @@ class UserFilterDTO(BaseFilteringInput):
 class UserLoginInputDTO(CamelCaseModel):
     username: str
     password: str
+
+
+class GoogleAuthInputDTO(CamelCaseModel):
+    id_token: str = Field(..., min_length=1)
     
     
 class UserLoginResponseDTO(CamelCaseModel):

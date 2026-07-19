@@ -10,6 +10,7 @@ dependencies = [
     "boto3>=1.43.14",
     "fastapi[standard]>=0.136.1",
     "faster-whisper>=1.2.1",
+    "google-auth>=2.56.0",
     "httpx>=0.28.1",
     "psycopg2>=2.9.12",
     "pyannote-audio>=4.0.4",
