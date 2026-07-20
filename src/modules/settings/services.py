@@ -1,12 +1,8 @@
-from src.utils.passwords import PasswordManager
-
 from .models import EmailConfiguration
 from src.shared.database import engine 
 from sqlmodel import Session, select 
 from src.shared.dtos import  SingleResponse , ResponseObjects
-from src.shared.paginated_data import build_paginated_data
 from  .dtos import EmailInputConfigurationDTO
-
 
 
 class SettingsService:

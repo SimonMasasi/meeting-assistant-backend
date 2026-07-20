@@ -4,6 +4,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str
     SECRET_KEY: str
     DEBUG: bool = True
+    APP_NAME: str = "Meeting Assistant"
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
     JWT_ALGORITHM: str = "HS256"
