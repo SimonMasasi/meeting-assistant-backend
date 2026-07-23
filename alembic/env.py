@@ -22,8 +22,13 @@ config.set_main_option("sqlalchemy.url", SETTINGS.DATABASE_URL)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
+#
+# disable_existing_loggers must stay False: run_migrations() is called at app
+# import time, which is *after* uvicorn has configured its own loggers. With the
+# default (True) this call silently disables uvicorn.error and uvicorn.access,
+# and the server then runs with no request logs and no tracebacks.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = SQLModel.metadata
 

@@ -1,5 +1,9 @@
+import contextlib
+import os
+import tempfile
+
 from src.modules.uploads.services import UploadService
-from src.modules.uploads.models import UploadedFile 
+from src.modules.uploads.models import UploadedFile
 
 from .models import Meeting , MeetingSpeaker , MeetingRecording
 from .dtos import MeetingInputDTO , MeetingUpdateDTO , MeetingFilteringInputDTO , MeetingRecordingInputDto , MeetingRecordingFilteringInputDTO
@@ -100,12 +104,21 @@ class MeetingService:
                 return SingleResponse(response=ResponseObjects.get_response(0, "File not found"), data=None)
             
             # TODO process the recording to determine the current speaker (putting a placeholder for now)
-            success , message , file_bytes , _ = self.upload_service.get_file(input.file_id)
-            if not success:
-                logger.error("Failed to retrieve file with ID %s: %s", input.file_id, message)
-                return SingleResponse(response=ResponseObjects.get_response(0, message), data=None)
-            
-            speakers_list = self.speaker_diarization_service.diarize(file_bytes, int(input.meeting_id), current_user_id)
+            # Diarize from a local copy rather than the raw bytes: recordings can
+            # be gigabytes, and the pyannote pipeline reads a path directly.
+            suffix = os.path.splitext(recording_file.filename)[1] or ".wav"
+            fd, audio_path = tempfile.mkstemp(suffix=suffix)
+            os.close(fd)
+            try:
+                success , message , _ = self.upload_service.download_to_path(input.file_id, audio_path)
+                if not success:
+                    logger.error("Failed to retrieve file with ID %s: %s", input.file_id, message)
+                    return SingleResponse(response=ResponseObjects.get_response(0, message), data=None)
+
+                speakers_list = self.speaker_diarization_service.diarize(audio_path, int(input.meeting_id), current_user_id)
+            finally:
+                with contextlib.suppress(OSError):
+                    os.remove(audio_path)
 
             # Create a new MeetingRecording entry for each speaker segment
             new_recordings = []

@@ -1,6 +1,11 @@
+MIME_SNIFF_BYTES = 2048
+
+
 def classify_file_type_to_folder(file_bytes: bytes) -> str:
+        # libmagic only ever looks at the head of the buffer, so callers holding a
+        # large file may pass just the first MIME_SNIFF_BYTES instead of all of it.
         import magic
-        extension = magic.from_buffer(file_bytes, mime=True).split('/')[-1]
+        extension = magic.from_buffer(file_bytes[:MIME_SNIFF_BYTES], mime=True).split('/')[-1]
         if extension in ['jpg', 'jpeg', 'png', 'gif']:
             return 'images/'
         elif extension in ['pdf', 'docx', 'txt']:

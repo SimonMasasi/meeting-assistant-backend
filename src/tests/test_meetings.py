@@ -144,13 +144,18 @@ class TestAddMeetingRecording:
         meeting = _create_meeting(db_session, user)
         uploaded = _create_uploaded_file(db_session)
 
-        # Create a mock speaker to return from diarization
+        # The speaker returned by diarization must be persisted: the real
+        # service commits its speakers before the recordings that reference them,
+        # and meeting_recordings.speaker_id is a foreign key.
         mock_speaker = MeetingSpeaker(
             id=Generator.generate_64bit_int_uuid(),
             speaker_name="SPEAKER_00",
             meeting_id=meeting.id,
             created_by_id=user.id,
         )
+        db_session.add(mock_speaker)
+        db_session.commit()
+        db_session.refresh(mock_speaker)
         mock_segments = [(mock_speaker, "0.0", "5.5")]
 
         with (
@@ -159,8 +164,8 @@ class TestAddMeetingRecording:
                 return_value=mock_segments,
             ),
             patch(
-                "src.modules.uploads.services.UploadService.get_file",
-                return_value=(True, "OK", MagicMock(read=b"audio"), None),
+                "src.modules.uploads.services.UploadService.download_to_path",
+                return_value=(True, "OK", None),
             ),
         ):
             resp = auth_client.post(

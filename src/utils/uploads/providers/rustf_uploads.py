@@ -4,7 +4,7 @@ import os
 import boto3
 from botocore.client import Config
 from config import SETTINGS
-from src.utils.helper_functions import classify_file_type_to_folder
+from src.utils.helper_functions import MIME_SNIFF_BYTES, classify_file_type_to_folder
 from src.utils.generators import Generator
 
 
@@ -58,6 +58,22 @@ class RustfUploads:
             return False , f"Error uploading file: {str(e)}" , None
         
         
+    def upload_stream(self, file_obj, object_name: str, size: int | None = None, source_path: str | None = None):
+        """Store from an open file object. boto3's upload_fileobj chunks into an
+        S3 multipart upload internally, so the body is never fully buffered."""
+        try:
+            head = file_obj.read(MIME_SNIFF_BYTES)
+            file_obj.seek(0)
+            file_type_folder = classify_file_type_to_folder(head).rstrip('/')
+            unique_identifier = Generator.generate_64bit_int_uuid()
+            original_extension = os.path.splitext(object_name)[1]
+            object_name = f"{file_type_folder}/{unique_identifier}{original_extension}"
+            self.s3_client.upload_fileobj(file_obj, self.bucket_name, object_name)
+            return True , "File uploaded successfully" , object_name
+        except Exception as e:
+            logger.error(f"Error uploading file stream: {e}")
+            return False , f"Error uploading file: {str(e)}" , None
+
     def get_file_as_bytes(self, file_path: str) -> bytes | None:
         try:
             response = self.s3_client.get_object(Bucket=self.bucket_name, Key=file_path)

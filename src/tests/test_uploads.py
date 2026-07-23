@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
+from config import SETTINGS
 from src.modules.auth.models import User
 from src.modules.uploads.models import UploadedFile
 from src.shared.database import engine
@@ -88,7 +89,9 @@ class TestUploadFile:
         assert resp.status_code in (401, 403)
 
     def test_upload_oversized_file_rejected(self, auth_client: TestClient):
-        large_bytes = b"x" * (20 * 1024 * 1024 + 1)  # 20 MB + 1 byte
+        # One byte past the configured in-memory multipart cap; anything larger
+        # is expected to go through the resumable tus endpoint instead.
+        large_bytes = b"x" * (SETTINGS.MAX_UPLOAD_SIZE_BYTES + 1)
         with (
             patch(
                 "src.utils.uploads.uploads_manager.UploadsManager.get_file_mimetype",
@@ -105,7 +108,29 @@ class TestUploadFile:
             )
         body = resp.json()
         assert body["response"]["status"] is False
-        assert "20MB" in body["response"]["message"]
+        expected_limit = f"{SETTINGS.MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB"
+        assert expected_limit in body["response"]["message"]
+
+    def test_size_column_holds_files_beyond_two_gigabytes(self, db_session: Session):
+        """uploaded_files.size must be a 64-bit column: a 2 GB upload is one byte
+        past the int4 ceiling, which used to fail *after* the bytes were stored."""
+        from src.shared.enums import FileTypeEnum
+
+        two_gb = 2 * 1024 * 1024 * 1024
+        f = UploadedFile(
+            id=Generator.generate_64bit_int_uuid(),
+            filename="huge.wav",
+            content_type="audio/wav",
+            size=two_gb,
+            file_path="uploads_media/audio/huge.wav",
+            file_type=FileTypeEnum.AUDIO,
+            file_hash="uniquehash_huge",
+            mimetype="audio/wav",
+        )
+        db_session.add(f)
+        db_session.commit()
+        db_session.refresh(f)
+        assert f.size == two_gb
 
     def test_duplicate_file_returns_existing_metadata(
         self, auth_client: TestClient, db_session: Session

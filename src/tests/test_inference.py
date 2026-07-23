@@ -56,9 +56,11 @@ def _persisted_audio_file(db_session: Session) -> UploadedFile:
 
 
 def _get_file_patch(file_row: UploadedFile):
+    """Transcription streams the recording to a local temp path rather than
+    reading it into memory, so this stubs the download instead of the read."""
     return patch(
-        "src.modules.uploads.services.UploadService.get_file",
-        return_value=(True, "ok", io.BytesIO(b"fake-audio-bytes"), file_row),
+        "src.modules.uploads.services.UploadService.download_to_path",
+        return_value=(True, "ok", file_row),
     )
 
 

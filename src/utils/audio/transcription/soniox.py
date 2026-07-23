@@ -2,7 +2,9 @@
 (https://soniox.com/docs). Used when SONIOX_API_KEY is configured; replaces the
 whole local Whisper + pyannote pipeline in one API call.
 """
+import contextlib
 import logging
+import os
 import time
 
 import httpx
@@ -32,20 +34,30 @@ class SonioxTranscriber:
 
     def transcribe(
         self,
-        audio_bytes: bytes,
+        audio: bytes | str,
         filename: str = "audio.wav",
         poll_interval_s: float = 2.0,
         timeout_s: float = 600.0,
     ) -> list[SpeechSegment]:
         """Upload the audio, run an async diarized transcription, and return the
-        transcript as speaker-turn segments."""
+        transcript as speaker-turn segments.
+
+        `audio` is either the bytes or a path to a local file. With a path the
+        handle is handed to httpx, which streams it, so a multi-gigabyte
+        recording is never held in memory."""
         headers = {"Authorization": f"Bearer {self.api_key}"}
         file_id = transcription_id = None
-        with httpx.Client(
-            base_url=self.base_url, headers=headers, timeout=60, transport=self._transport
-        ) as client:
+        with contextlib.ExitStack() as stack:
+            if isinstance(audio, (str, os.PathLike)):
+                audio_body = stack.enter_context(open(audio, "rb"))
+            else:
+                audio_body = audio
+
+            client = stack.enter_context(httpx.Client(
+                base_url=self.base_url, headers=headers, timeout=60, transport=self._transport
+            ))
             try:
-                resp = client.post("/v1/files", files={"file": (filename, audio_bytes)})
+                resp = client.post("/v1/files", files={"file": (filename, audio_body)})
                 _raise_for_status(resp, "file upload")
                 file_id = resp.json()["id"]
 

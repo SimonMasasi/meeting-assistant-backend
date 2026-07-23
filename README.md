@@ -100,6 +100,15 @@ JWT_PASSWORD_RESET_TOKEN_EXPIRE_SECONDS=86400   # 24 hours
 # ── File Storage (local by default) ──────────────────────
 USE_RUSTF_UPLOADS=False
 
+# ── Uploads ──────────────────────────────────────────────
+# Cap for the single-request endpoint (POST /uploads/upload-file), which
+# buffers the whole body in memory. Larger files must use resumable uploads.
+MAX_UPLOAD_SIZE_BYTES=52428800          # 50 MB
+# Cap for resumable (tus) uploads — meeting audio can reach 2 GB.
+TUS_MAX_UPLOAD_SIZE_BYTES=2147483648    # 2 GB
+TUS_UPLOAD_DIR=uploads_media/.tus       # scratch space for in-progress chunks
+TUS_UPLOAD_EXPIRY_SECONDS=86400         # abandoned uploads reaped after 24 h
+
 # ── Rustf / S3-compatible storage (optional) ─────────────
 # USE_RUSTF_UPLOADS=True
 # RUSTF_URL=http://localhost:9000
@@ -272,5 +281,49 @@ Two storage backends are supported and switched via the `USE_RUSTF_UPLOADS` envi
 | Local (default) | `USE_RUSTF_UPLOADS=False` | `uploads_media/` directory |
 | Rustf / S3 | `USE_RUSTF_UPLOADS=True` | S3-compatible bucket |
 
-Files are deduplicated by SHA-256 hash — uploading the same file twice returns the existing record.  
-Maximum upload size is **20 MB**.
+Files are deduplicated by SHA-256 hash — uploading the same file twice returns the existing record.
+
+### Upload paths
+
+| Endpoint | Limit | Use for |
+|---|---|---|
+| `POST /uploads/upload-file` | `MAX_UPLOAD_SIZE_BYTES` (50 MB) | Small files, one request |
+| `POST /uploads/tus` | `TUS_MAX_UPLOAD_SIZE_BYTES` (2 GB) | Meeting audio; resumable |
+
+### Resumable uploads (tus)
+
+Large recordings go over the [tus 1.0.0](https://tus.io/protocols/resumable-upload) protocol, which
+splits the file into chunks and resumes from the server's offset after a dropped connection — a 2 GB
+upload no longer restarts from zero. Supported extensions: `creation`, `termination`, `expiration`.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `OPTIONS` | `/uploads/tus` | Discover version, max size, extensions |
+| `POST` | `/uploads/tus` | Create an upload (`Upload-Length` + `Upload-Metadata` required) → `Location` |
+| `HEAD` | `/uploads/tus/{key}` | Current `Upload-Offset` — call this to resume |
+| `PATCH` | `/uploads/tus/{key}` | Append a chunk at `Upload-Offset` |
+| `DELETE` | `/uploads/tus/{key}` | Abandon the upload |
+
+All except `OPTIONS` require the usual `Authorization: Bearer <token>`; an upload may only be resumed
+by the user who created it. The final `PATCH` responds `200` with the standard `SingleResponse`
+envelope containing the created file record, so no extra call is needed to get the file id.
+
+Any tus client works, e.g. [`tus-js-client`](https://github.com/tus/tus-js-client):
+
+```js
+new tus.Upload(file, {
+  endpoint: "http://localhost:8000/uploads/tus",
+  headers: { Authorization: `Bearer ${token}` },
+  chunkSize: 8 * 1024 * 1024,
+  metadata: { filename: file.name, filetype: file.type },
+})
+```
+
+**Operational notes**
+
+- In-progress chunks are buffered under `TUS_UPLOAD_DIR`, so that volume needs roughly
+  `TUS_MAX_UPLOAD_SIZE_BYTES` free per concurrent upload. Expired buffers are reaped at startup.
+- Behind a reverse proxy, the body limit (nginx `client_max_body_size`) must exceed the client's
+  **chunk** size, not the total file size — tus splits the upload.
+- Uploads and transcription both stream to and from disk, so server memory stays flat regardless of
+  file size.

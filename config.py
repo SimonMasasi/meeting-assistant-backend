@@ -17,6 +17,18 @@ class Settings(BaseSettings):
     # rejects all requests.
     GOOGLE_CLIENT_ID: str | None = None
 
+    # Uploads. MAX_UPLOAD_SIZE_BYTES caps the single-request multipart path
+    # (POST /uploads/upload-file), which buffers the whole body in memory and so
+    # stays small. Anything larger goes through the resumable tus endpoint
+    # (/uploads/tus), which streams to disk and is capped separately.
+    MAX_UPLOAD_SIZE_BYTES: int = 50 * 1024 * 1024
+    TUS_MAX_UPLOAD_SIZE_BYTES: int = 2 * 1024 * 1024 * 1024
+    # Scratch space for in-progress tus uploads; needs roughly
+    # TUS_MAX_UPLOAD_SIZE_BYTES free per concurrent upload.
+    TUS_UPLOAD_DIR: str = "uploads_media/.tus"
+    # Abandoned uploads (client never finished) are reaped after this long.
+    TUS_UPLOAD_EXPIRY_SECONDS: int = 60 * 60 * 24
+
     USE_RUSTF_UPLOADS: bool = False
     RUSTF_URL: str = "http://localhost:9000"
     RUSTF_ACCESS_KEY: str = None

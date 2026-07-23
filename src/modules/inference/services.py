@@ -11,6 +11,7 @@ import contextlib
 import io
 import json
 import logging
+import os
 import re
 import tempfile
 import wave
@@ -112,37 +113,46 @@ class InferenceService:
         """Transcribe + diarize an uploaded audio file, persisting one segment per
         speaker turn and returning them. Uses Soniox when SONIOX_API_KEY is set
         (falling back to the local pipeline on failure), else Whisper + pyannote."""
-        ok, message, file_stream, file_metadata = self.upload_service.get_file(file_id)
-        if not ok:
-            raise ValueError(message)
-        audio_bytes = file_stream.read() if hasattr(file_stream, "read") else bytes(file_stream)
+        # Stream the recording down to a local file rather than reading it into
+        # memory: meeting audio can reach 2 GB, and every consumer below (Soniox
+        # upload, pyannote, faster-whisper) accepts a path.
+        # Keep the original extension so ffmpeg/torchaudio pick the right decoder.
+        metadata = self.upload_service.get_file_metadata(file_id)
+        suffix = os.path.splitext(metadata.filename)[1] if metadata and metadata.filename else ".wav"
+        fd, audio_path = tempfile.mkstemp(suffix=suffix or ".wav")
+        os.close(fd)
+        try:
+            ok, message, file_metadata = self.upload_service.download_to_path(file_id, audio_path)
+            if not ok:
+                raise ValueError(message)
 
-        segments: list[SpeechSegment] | None = None
-        if SETTINGS.SONIOX_API_KEY and SETTINGS.SONIOX_API_KEY.strip():
-            try:
-                logger.info("Transcribing meeting %s file %s with Soniox", meeting_id, file_id)
-                segments = SonioxTranscriber().transcribe(
-                    audio_bytes,
-                    filename=file_metadata.filename if file_metadata else "audio.wav",
-                )
-            except Exception as e:
-                logger.warning("Soniox transcription failed (%s); falling back to local pipeline", e)
-        if segments is None:
-            logger.info("Transcribing meeting %s file %s with local Whisper + pyannote", meeting_id, file_id)
-            segments = self._transcribe_local(audio_bytes)
+            segments: list[SpeechSegment] | None = None
+            if SETTINGS.SONIOX_API_KEY and SETTINGS.SONIOX_API_KEY.strip():
+                try:
+                    logger.info("Transcribing meeting %s file %s with Soniox", meeting_id, file_id)
+                    segments = SonioxTranscriber().transcribe(
+                        audio_path,
+                        filename=file_metadata.filename if file_metadata else "audio.wav",
+                    )
+                except Exception as e:
+                    logger.warning("Soniox transcription failed (%s); falling back to local pipeline", e)
+            if segments is None:
+                logger.info("Transcribing meeting %s file %s with local Whisper + pyannote", meeting_id, file_id)
+                segments = self._transcribe_local(audio_path)
+        finally:
+            with contextlib.suppress(OSError):
+                os.remove(audio_path)
 
         return self._persist_segments(int(meeting_id), int(file_id), current_user_id, segments)
 
-    def _transcribe_local(self, audio_bytes: bytes) -> list[SpeechSegment]:
+    def _transcribe_local(self, audio_path: str) -> list[SpeechSegment]:
         # Speaker timeline first, then ASR over the whole file via faster-whisper
         # (decodes through ffmpeg); each ASR line gets its best-overlapping speaker.
-        turns = self.diarization_service.diarize_turns(audio_bytes)
+        # Both stages read the file from disk, so nothing is buffered in memory.
+        turns = self.diarization_service.diarize_turns(audio_path)
         whisper = self._load_whisper()
-        with tempfile.NamedTemporaryFile(suffix=".wav") as tmp:
-            tmp.write(audio_bytes)
-            tmp.flush()
-            asr_segments, _info = whisper.transcribe(tmp.name)
-            asr = [(float(s.start), float(s.end), (s.text or "").strip()) for s in asr_segments]
+        asr_segments, _info = whisper.transcribe(audio_path)
+        asr = [(float(s.start), float(s.end), (s.text or "").strip()) for s in asr_segments]
         return [
             SpeechSegment(
                 speaker_key=_best_speaker_label(turns, start, end),
