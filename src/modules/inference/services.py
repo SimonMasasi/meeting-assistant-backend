@@ -7,6 +7,7 @@ Summarization is dependency-light (httpx) and configured purely via env
 needs `faster-whisper` installed on the server (`uv add faster-whisper`); it is
 imported lazily so the rest of the API runs without it.
 """
+import concurrent.futures
 import contextlib
 import io
 import json
@@ -14,7 +15,9 @@ import logging
 import os
 import re
 import tempfile
+import time
 import wave
+from typing import Iterator
 
 import httpx
 from fastapi import UploadFile
@@ -27,9 +30,25 @@ from src.modules.uploads.services import UploadService
 from src.utils.audio.speaker_diarization import SpeakerDiarizationService
 from src.utils.audio.transcription.segments import SpeechSegment
 from src.utils.audio.transcription.soniox import SonioxTranscriber
-from .dtos import SummaryDTO, TranscriptSegmentDTO, UtteranceTranscriptDTO
+from .dtos import (
+    SummaryDTO,
+    TranscriptProgressDTO,
+    TranscriptSegmentDTO,
+    TranscriptSegmentEventDTO,
+    TranscriptStreamDoneDTO,
+    TranscriptStreamStatusDTO,
+    UtteranceTranscriptDTO,
+)
 
 logger = logging.getLogger(__name__)
+
+# How often the stream emits a progress heartbeat while a stage is running with
+# nothing to report — downloading, diarizing, and the whole of the Soniox job.
+# Well under the 60 s idle timeout nginx (proxy_read_timeout) and AWS ALB both
+# default to: without traffic, a proxy kills the connection mid-run and the
+# client correctly reports a healthy transcription as failed.
+STREAM_HEARTBEAT_S = 15.0
+UNKNOWN_SPEAKER_LABEL = "Unknown speaker"
 
 # Guards for the live single-utterance endpoint. The client guarantees short
 # 16 kHz mono clips; these just fence off abuse / misuse cheaply.
@@ -112,7 +131,34 @@ class InferenceService:
     def transcribe(self, meeting_id: str, file_id: str, current_user_id: int) -> list[TranscriptSegmentDTO]:
         """Transcribe + diarize an uploaded audio file, persisting one segment per
         speaker turn and returning them. Uses Soniox when SONIOX_API_KEY is set
-        (falling back to the local pipeline on failure), else Whisper + pyannote."""
+        (falling back to the local pipeline on failure), else Whisper + pyannote.
+
+        The blocking form of transcribe_iter: same work, same persistence, only
+        the caller waits for all of it before seeing anything."""
+        return [
+            TranscriptSegmentDTO.model_validate(payload)
+            for name, payload in self.transcribe_iter(meeting_id, file_id, current_user_id)
+            if name == "segment"
+        ]
+
+    def transcribe_iter(
+        self, meeting_id: str, file_id: str, current_user_id: int
+    ) -> Iterator[tuple[str, dict]]:
+        """Same transcription as transcribe(), yielding (event_name, payload) as
+        the work proceeds so a caller can stream it to the client. Events are
+        "status", "progress", "segment" and "done"; failures raise rather than
+        yielding, since only the view knows how to frame them.
+
+        Segments are persisted in one transaction at the end, not as they are
+        emitted: a client that disconnects mid-run leaves the previous transcript
+        untouched rather than a truncated one, and re-running is safe because
+        _persist_segments replaces this file's rows.
+        """
+        started = time.monotonic()
+
+        def elapsed_ms() -> int:
+            return int((time.monotonic() - started) * 1000)
+
         # Stream the recording down to a local file rather than reading it into
         # memory: meeting audio can reach 2 GB, and every consumer below (Soniox
         # upload, pyannote, faster-whisper) accepts a path.
@@ -121,48 +167,133 @@ class InferenceService:
         suffix = os.path.splitext(metadata.filename)[1] if metadata and metadata.filename else ".wav"
         fd, audio_path = tempfile.mkstemp(suffix=suffix or ".wav")
         os.close(fd)
+
+        collected: list[SpeechSegment] = []
+        # Display names must be settled before the first segment goes out, and
+        # _persist_segments has to agree with what the client already saw, so the
+        # same labeler serves both.
+        labeler = self._new_speaker_labeler(int(meeting_id), int(file_id))
+
+        def emit(inner: Iterator[tuple[str, object]]) -> Iterator[tuple[str, dict]]:
+            """Turn a backend's internal stream into client events, collecting the
+            segments for persistence on the way through."""
+            for name, payload in inner:
+                if name != "_segment":
+                    yield name, payload
+                    continue
+                segment: SpeechSegment = payload
+                label = (
+                    labeler.label(segment.speaker_key)
+                    if segment.speaker_key is not None
+                    else UNKNOWN_SPEAKER_LABEL
+                )
+                collected.append(segment)
+                yield "segment", TranscriptSegmentEventDTO(
+                    index=len(collected) - 1,
+                    speaker_label=label,
+                    speaker_name=_identified_name(label),
+                    start_ms=segment.start_ms,
+                    end_ms=segment.end_ms,
+                    text=segment.text,
+                ).model_dump(by_alias=True)
+
         try:
-            ok, message, file_metadata = self.upload_service.download_to_path(file_id, audio_path)
+            yield "status", _status("downloading")
+            # Pulling a multi-gigabyte recording out of storage is itself long
+            # enough to trip a proxy's idle timeout, so it heartbeats too. No
+            # duration is known yet — the file isn't here.
+            ok, message, file_metadata = yield from _with_heartbeat(
+                lambda: self.upload_service.download_to_path(file_id, audio_path),
+                lambda: ("progress", _progress(None, None, elapsed_ms())),
+            )
             if not ok:
                 raise ValueError(message)
 
-            segments: list[SpeechSegment] | None = None
-            if SETTINGS.SONIOX_API_KEY and SETTINGS.SONIOX_API_KEY.strip():
+            # Known as soon as the audio is local, whichever backend runs it, so
+            # the client can say "transcribing a 27-minute recording" during the
+            # stages that report no position of their own.
+            total_ms = _audio_duration_ms(audio_path)
+            if total_ms:
+                yield "progress", _progress(None, total_ms, elapsed_ms())
+
+            backend = "soniox" if (SETTINGS.SONIOX_API_KEY or "").strip() else "local"
+            if backend == "soniox":
+                logger.info("Transcribing meeting %s file %s with Soniox", meeting_id, file_id)
+                yield "status", _status("transcribing", "soniox")
                 try:
-                    logger.info("Transcribing meeting %s file %s with Soniox", meeting_id, file_id)
-                    segments = SonioxTranscriber().transcribe(
-                        audio_path,
-                        filename=file_metadata.filename if file_metadata else "audio.wav",
+                    yield from emit(
+                        self._transcribe_soniox_iter(
+                            audio_path,
+                            file_metadata.filename if file_metadata else "audio.wav",
+                            elapsed_ms,
+                            total_ms,
+                        )
                     )
                 except Exception as e:
                     logger.warning("Soniox transcription failed (%s); falling back to local pipeline", e)
-            if segments is None:
+                    # Soniox only emits segments once its job completes, so a
+                    # failure here means nothing reached the client yet.
+                    collected.clear()
+                    backend = "local"
+
+            if backend == "local":
                 logger.info("Transcribing meeting %s file %s with local Whisper + pyannote", meeting_id, file_id)
-                segments = self._transcribe_local(audio_path)
+                yield from emit(self._transcribe_local_iter(audio_path, elapsed_ms, total_ms))
         finally:
             with contextlib.suppress(OSError):
                 os.remove(audio_path)
 
-        return self._persist_segments(int(meeting_id), int(file_id), current_user_id, segments)
+        yield "status", _status("saving", backend)
+        self._persist_segments(int(meeting_id), int(file_id), current_user_id, collected, labeler)
+        yield "done", TranscriptStreamDoneDTO(segment_count=len(collected)).model_dump(by_alias=True)
 
-    def _transcribe_local(self, audio_path: str) -> list[SpeechSegment]:
+    def _transcribe_soniox_iter(
+        self, audio_path: str, filename: str, elapsed_ms, total_ms: int | None
+    ) -> Iterator[tuple[str, object]]:
+        """Soniox segments, preceded by heartbeats while its async job runs.
+
+        The API returns nothing until the job completes, so the transcription
+        runs in a worker thread and the wait is spent emitting progress with no
+        position in it — the client should render this as indeterminate. The
+        audio's length still goes out, so the wait can at least be described."""
+        segments = yield from _with_heartbeat(
+            lambda: SonioxTranscriber().transcribe(audio_path, filename=filename),
+            lambda: ("progress", _progress(None, total_ms, elapsed_ms())),
+        )
+        for segment in segments:
+            yield "_segment", segment
+
+    def _transcribe_local_iter(
+        self, audio_path: str, elapsed_ms, total_ms: int | None
+    ) -> Iterator[tuple[str, object]]:
         # Speaker timeline first, then ASR over the whole file via faster-whisper
         # (decodes through ffmpeg); each ASR line gets its best-overlapping speaker.
         # Both stages read the file from disk, so nothing is buffered in memory.
-        turns = self.diarization_service.diarize_turns(audio_path)
+        # Diarization needs the whole file up front, but faster-whisper yields
+        # segments lazily as it decodes, so those go out as they are produced.
+        yield "status", _status("diarizing", "local")
+        # Minutes of work with no position to report — heartbeat, or a proxy
+        # closes the connection before the first segment ever exists.
+        turns = yield from _with_heartbeat(
+            lambda: self.diarization_service.diarize_turns(audio_path),
+            lambda: ("progress", _progress(None, total_ms, elapsed_ms())),
+        )
         whisper = self._load_whisper()
-        asr_segments, _info = whisper.transcribe(audio_path)
-        asr = [(float(s.start), float(s.end), (s.text or "").strip()) for s in asr_segments]
-        return [
-            SpeechSegment(
-                speaker_key=_best_speaker_label(turns, start, end),
-                start_ms=int(start * 1000),
-                end_ms=int(end * 1000),
-                text=text,
-            )
-            for start, end, text in asr
-            if text
-        ]
+        yield "status", _status("transcribing", "local")
+        asr_segments, info = whisper.transcribe(audio_path)
+        # Whisper's own duration is authoritative once decoding starts; the
+        # header-derived one covers everything before that.
+        total_ms = int((getattr(info, "duration", 0) or 0) * 1000) or total_ms
+        for s in asr_segments:
+            start, end, text = float(s.start), float(s.end), (s.text or "").strip()
+            if text:
+                yield "_segment", SpeechSegment(
+                    speaker_key=_best_speaker_label(turns, start, end),
+                    start_ms=int(start * 1000),
+                    end_ms=int(end * 1000),
+                    text=text,
+                )
+            yield "progress", _progress(int(end * 1000), total_ms, elapsed_ms())
 
     # ----- Live single-utterance transcription (stateless, no DB) ----------
 
@@ -240,12 +371,34 @@ class InferenceService:
             text = " ".join((s.text or "").strip() for s in segments).strip()
         return text, getattr(info, "language", None), getattr(info, "language_probability", None)
 
+    def _new_speaker_labeler(self, meeting_id: int, file_id: int) -> "_SpeakerLabeler":
+        """A labeler that allocates the same display names _persist_segments would,
+        so the streaming path can label a segment before anything is written.
+
+        Speakers only this file's current transcript references are excluded from
+        the numbering: persistence deletes them first, so they are not names this
+        run has to avoid."""
+        with Session(engine) as session:
+            speakers = session.exec(
+                select(MeetingSpeaker).where(MeetingSpeaker.meeting_id == meeting_id)
+            ).all()
+            surviving = [s.speaker_name for s in speakers if not _only_used_by_file(session, s.id, meeting_id, file_id)]
+        return _SpeakerLabeler(_next_speaker_number(surviving))
+
     def _persist_segments(
-        self, meeting_id: int, file_id: int, current_user_id: int, segments: list[SpeechSegment]
+        self,
+        meeting_id: int,
+        file_id: int,
+        current_user_id: int,
+        segments: list[SpeechSegment],
+        labeler: "_SpeakerLabeler | None" = None,
     ) -> list[TranscriptSegmentDTO]:
         """Persist provider-neutral segments as MeetingRecording rows, creating one
         MeetingSpeaker per provider speaker. Re-transcribing a file replaces its
-        previous transcript rows (and speakers no other file still references)."""
+        previous transcript rows (and speakers no other file still references).
+
+        `labeler` carries the display names a streaming caller has already sent to
+        the client; without one the names are allocated here."""
         results: list[TranscriptSegmentDTO] = []
         with Session(engine) as session:
             old = session.exec(
@@ -272,10 +425,11 @@ class InferenceService:
                     if orphan:
                         session.delete(orphan)
 
-            existing_names = session.exec(
-                select(MeetingSpeaker.speaker_name).where(MeetingSpeaker.meeting_id == meeting_id)
-            ).all()
-            next_num = _next_speaker_number(existing_names)
+            if labeler is None:
+                existing_names = session.exec(
+                    select(MeetingSpeaker.speaker_name).where(MeetingSpeaker.meeting_id == meeting_id)
+                ).all()
+                labeler = _SpeakerLabeler(_next_speaker_number(existing_names))
 
             # Provider speaker key -> row, scoped to this run only, so speakers
             # from different files never collide under one display name.
@@ -285,7 +439,7 @@ class InferenceService:
                 if seg.speaker_key is not None:
                     if seg.speaker_key not in speaker_rows:
                         speaker_rows[seg.speaker_key] = MeetingSpeaker(
-                            speaker_name=f"Speaker {next_num + len(speaker_rows)}",
+                            speaker_name=labeler.label(seg.speaker_key),
                             meeting_id=meeting_id,
                             created_by_id=current_user_id,
                         )
@@ -309,8 +463,8 @@ class InferenceService:
                 )
                 results.append(
                     TranscriptSegmentDTO(
-                        speaker_label=speaker.speaker_name if speaker else "Unknown speaker",
-                        speaker_name=speaker.speaker_name if speaker else None,
+                        speaker_label=speaker.speaker_name if speaker else UNKNOWN_SPEAKER_LABEL,
+                        speaker_name=_identified_name(speaker.speaker_name) if speaker else None,
                         start_ms=seg.start_ms,
                         end_ms=seg.end_ms,
                         text=seg.text,
@@ -345,10 +499,10 @@ class InferenceService:
             speaker = session.exec(
                 select(MeetingSpeaker).where(MeetingSpeaker.id == recording.speaker_id)
             ).first()
-        label = speaker.speaker_name if speaker else "Unknown speaker"
+        label = speaker.speaker_name if speaker else UNKNOWN_SPEAKER_LABEL
         return TranscriptSegmentDTO(
             speaker_label=label,
-            speaker_name=speaker.speaker_name if speaker else None,
+            speaker_name=_identified_name(speaker.speaker_name) if speaker else None,
             start_ms=int(float(recording.start_time or 0) * 1000),
             end_ms=int(float(recording.end_time or 0) * 1000),
             text=recording.text or "",
@@ -365,6 +519,114 @@ class InferenceService:
                 ) from e
             self._whisper = WhisperModel(SETTINGS.WHISPER_MODEL)
         return self._whisper
+
+
+def _with_heartbeat(work, heartbeat):
+    """Run a blocking call on a worker thread, yielding `heartbeat()` every
+    STREAM_HEARTBEAT_S until it finishes, and return its result.
+
+    Used with `yield from` inside the transcription stream. Every stage that can
+    run for minutes without producing an event needs this: an idle connection is
+    closed by nginx and AWS ALB after 60 s by default, and a stream that dies
+    without its `done` event is indistinguishable from a real failure.
+    """
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        future = pool.submit(work)
+        while True:
+            try:
+                return future.result(timeout=STREAM_HEARTBEAT_S)
+            except concurrent.futures.TimeoutError:
+                yield heartbeat()
+    finally:
+        # Never wait: on a client disconnect this runs from GeneratorExit, and a
+        # still-running job would otherwise block for minutes.
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def _audio_duration_ms(path: str) -> int | None:
+    """Length of a local audio file, or None when it can't be read cheaply.
+
+    Taken from the WAV header where possible — the desktop uploads 16-bit PCM
+    WAV — and otherwise from torchaudio, already installed for diarization, which
+    covers the compressed formats the file picker allows. Neither decodes the
+    audio, so this stays cheap on a multi-gigabyte recording.
+    """
+    with contextlib.suppress(Exception):
+        with contextlib.closing(wave.open(path, "rb")) as wav:
+            if wav.getframerate():
+                return int(wav.getnframes() / wav.getframerate() * 1000)
+    with contextlib.suppress(Exception):
+        import torchaudio
+
+        info = torchaudio.info(path)
+        if info.sample_rate:
+            return int(info.num_frames / info.sample_rate * 1000)
+    return None
+
+
+def _identified_name(speaker_name: str | None) -> str | None:
+    """A speaker's actual name, or None when it is just the auto-assigned
+    "Speaker N" placeholder.
+
+    `speaker_label` already carries that placeholder, so repeating it in
+    `speaker_name` would claim an identification the pipeline never made — a
+    client could not tell "the server knows who this is" from "nobody named this
+    speaker yet".
+    """
+    if not speaker_name or speaker_name == UNKNOWN_SPEAKER_LABEL:
+        return None
+    if re.fullmatch(r"Speaker \d+", speaker_name):
+        return None
+    return speaker_name
+
+
+class _SpeakerLabeler:
+    """Allocates "Speaker N" display names to provider speaker keys in
+    first-appearance order, starting at `start_number`. Streaming and persistence
+    share one instance so a segment keeps the label the client already saw."""
+
+    def __init__(self, start_number: int):
+        self._next = start_number
+        self._labels: dict[str, str] = {}
+
+    def label(self, speaker_key: str) -> str:
+        if speaker_key not in self._labels:
+            self._labels[speaker_key] = f"Speaker {self._next}"
+            self._next += 1
+        return self._labels[speaker_key]
+
+
+def _only_used_by_file(session: Session, speaker_id: int, meeting_id: int, file_id: int) -> bool:
+    """Whether every recording referencing this speaker belongs to `file_id` — the
+    speakers re-transcribing that file would orphan and delete."""
+    used_by_file = session.exec(
+        select(MeetingRecording).where(
+            MeetingRecording.speaker_id == speaker_id,
+            MeetingRecording.meeting_id == meeting_id,
+            MeetingRecording.file_id == file_id,
+        )
+    ).first()
+    if not used_by_file:
+        return False
+    used_elsewhere = session.exec(
+        select(MeetingRecording).where(
+            MeetingRecording.speaker_id == speaker_id,
+            MeetingRecording.meeting_id == meeting_id,
+            MeetingRecording.file_id != file_id,
+        )
+    ).first()
+    return used_elsewhere is None
+
+
+def _status(stage: str, backend: str | None = None) -> dict:
+    return TranscriptStreamStatusDTO(stage=stage, backend=backend).model_dump(by_alias=True)
+
+
+def _progress(processed_ms: int | None, total_ms: int | None, elapsed_ms: int) -> dict:
+    return TranscriptProgressDTO(
+        processed_ms=processed_ms, total_ms=total_ms, elapsed_ms=elapsed_ms
+    ).model_dump(by_alias=True)
 
 
 def _wav_duration_ms(audio_bytes: bytes) -> int:

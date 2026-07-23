@@ -1,3 +1,5 @@
+import json
+
 MIME_SNIFF_BYTES = 2048
 
 
@@ -23,3 +25,9 @@ def iter_file_chunks(file_stream, chunk_size: int = 1024 * 1024):
         if not chunk:
             break
         yield chunk
+
+
+def sse_event(name: str, data: dict) -> str:
+    """One server-sent event frame. The payload is JSON on a single line, so it
+    never needs multi-line `data:` continuations."""
+    return f"event: {name}\ndata: {json.dumps(data)}\n\n"
