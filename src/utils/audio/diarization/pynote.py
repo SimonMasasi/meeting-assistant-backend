@@ -12,7 +12,7 @@ class PyNoteDiarization:
         # never loads torch/pyannote (see SpeakerDiarizationService).
         import torch
         from pyannote.audio import Pipeline
-        from config import SETTINGS
+        from src.core.config import SETTINGS
 
         if not SETTINGS.HUGGINGFACE_TOKEN:
             raise ValueError(

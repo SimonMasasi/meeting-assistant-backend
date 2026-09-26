@@ -4,7 +4,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 
-from config import SETTINGS
+from src.core.config import SETTINGS
 from src.modules.auth.models import User
 from src.modules.uploads.models import UploadedFile
 from src.shared.database import engine

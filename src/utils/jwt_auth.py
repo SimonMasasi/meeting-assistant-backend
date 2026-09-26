@@ -1,5 +1,5 @@
 import jwt
-from config import SETTINGS
+from src.core.config import SETTINGS
 from datetime import datetime, timezone , timedelta
 from src.modules.auth.models import User
 

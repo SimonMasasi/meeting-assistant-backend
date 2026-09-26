@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from config import SETTINGS
+from src.core.config import SETTINGS
 from src.modules.auth.models import User
 from src.modules.uploads.models import TusUpload, UploadedFile
 from src.modules.uploads.tus_views import cleanup_expired_tus_uploads
@@ -215,7 +215,7 @@ class TestTusUploadFlow:
 
 class TestTusOwnershipAndLifecycle:
     def test_other_user_cannot_resume(self, auth_client: TestClient, second_user: User):
-        from app import app
+        from src.main import app
 
         key = _key_from_location(_create(auth_client, 100))
 

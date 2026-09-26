@@ -1,7 +1,7 @@
 """
 Root conftest – loaded by pytest before any test module.
 Environment variables MUST be set here so that pydantic-settings
-picks them up when config.py / src/shared/database.py are first imported.
+picks them up when src/core/config.py / src/shared/database.py are first imported.
 """
 import os
 

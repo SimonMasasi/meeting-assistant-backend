@@ -12,9 +12,9 @@ from unittest.mock import patch
 from sqlmodel import SQLModel, Session
 from fastapi.testclient import TestClient
 
-# Patch Alembic migration runner before app.py runs it at module-import time.
+# Patch Alembic migration runner before src/main.py runs it at module-import time.
 with patch("src.shared.database.run_migrations", return_value=None):
-    from app import app  # noqa: E402  (import after env-var setup)
+    from src.main import app  # noqa: E402  (import after env-var setup)
 
 from src.shared.database import engine
 from src.shared.dependencies import get_current_user

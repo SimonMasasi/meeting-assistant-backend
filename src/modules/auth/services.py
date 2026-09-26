@@ -1,7 +1,7 @@
 from datetime import timedelta
 from datetime import datetime
 
-from config import SETTINGS
+from src.core.config import SETTINGS
 from src.utils.passwords import PasswordManager
 
 from .models import User, UserAuthToken , UserAuthTokensTypes

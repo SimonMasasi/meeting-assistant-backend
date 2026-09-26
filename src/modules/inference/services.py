@@ -23,7 +23,7 @@ import httpx
 from fastapi import UploadFile
 from sqlmodel import Session, select
 
-from config import SETTINGS
+from src.core.config import SETTINGS
 from src.shared.database import engine
 from src.modules.meetings.models import Meeting, MeetingRecording, MeetingSpeaker
 from src.modules.uploads.services import UploadService

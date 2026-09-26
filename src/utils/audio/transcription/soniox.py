@@ -9,7 +9,7 @@ import time
 
 import httpx
 
-from config import SETTINGS
+from src.core.config import SETTINGS
 from .segments import SpeechSegment
 
 logger = logging.getLogger(__name__)

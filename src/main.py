@@ -6,7 +6,7 @@ from src.shared.database import run_migrations
 from src.shared.routes import routes
 from src.utils.open_api_routes import custom_openapi
 from src.utils.startup_banner import log_startup_banner
-from config import SETTINGS
+from src.core.config import SETTINGS
 import uvicorn
 
 
@@ -39,4 +39,4 @@ for router in routes:
 app.openapi = lambda: custom_openapi(app)
 
 if __name__ == "__main__":
-    uvicorn.run("app:app", host=SETTINGS.APP_HOST, port=SETTINGS.APP_PORT , log_level="debug" if SETTINGS.DEBUG else "info" , reload=SETTINGS.DEBUG)
+    uvicorn.run("src.main:app", host=SETTINGS.APP_HOST, port=SETTINGS.APP_PORT , log_level="debug" if SETTINGS.DEBUG else "info" , reload=SETTINGS.DEBUG)

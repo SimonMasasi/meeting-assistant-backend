@@ -1,7 +1,7 @@
 from sqlmodel import create_engine
 from alembic.config import Config
 from alembic import command
-from config import SETTINGS
+from src.core.config import SETTINGS
 
 engine = create_engine(SETTINGS.DATABASE_URL)
 

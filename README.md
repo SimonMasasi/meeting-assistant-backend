@@ -53,12 +53,14 @@ A FastAPI-based backend for managing meetings, audio recordings with speaker dia
 
 ```
 .
-├── app.py                  # Application entry point
-├── config.py               # Pydantic settings (loaded from .env)
 ├── alembic.ini             # Alembic configuration
 ├── alembic/
 │   └── versions/           # Migration scripts
 ├── src/
+│   ├── main.py             # Application entry point
+│   ├── core/
+│   │   ├── config.py       # Pydantic settings (loaded from .env)
+│   │   └── celery_app.py   # Celery app and task discovery
 │   ├── modules/
 │   │   ├── auth/           # Registration, login, JWT, user profile
 │   │   ├── meetings/       # Meetings CRUD and recording management
@@ -151,7 +153,7 @@ cp .env.example .env
 Migrations are applied automatically on startup.
 
 ```bash
-uv run python app.py
+uv run python -m src.main
 ```
 
 The API will be available at `http://localhost:8000`.  
@@ -327,3 +329,5 @@ new tus.Upload(file, {
   **chunk** size, not the total file size — tus splits the upload.
 - Uploads and transcription both stream to and from disk, so server memory stays flat regardless of
   file size.
+
+uv run celery -A src.core.celery_app worker --loglevel=info

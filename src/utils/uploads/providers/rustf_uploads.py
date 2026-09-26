@@ -3,7 +3,7 @@ import os
 
 import boto3
 from botocore.client import Config
-from config import SETTINGS
+from src.core.config import SETTINGS
 from src.utils.helper_functions import MIME_SNIFF_BYTES, classify_file_type_to_folder
 from src.utils.generators import Generator
 

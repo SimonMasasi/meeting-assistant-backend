@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from config import SETTINGS
+from src.core.config import SETTINGS
 from src.modules.auth.models import User
 from src.modules.inference.services import InferenceService, _audio_duration_ms
 from src.modules.meetings.models import Meeting, MeetingRecording, MeetingSpeaker

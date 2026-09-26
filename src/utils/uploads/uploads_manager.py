@@ -5,7 +5,7 @@ from src.utils.helper_functions import MIME_SNIFF_BYTES, iter_file_chunks
 import contextlib
 import magic
 import hashlib
-from config import SETTINGS
+from src.core.config import SETTINGS
 
 
 class UploadsManager:

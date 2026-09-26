@@ -5,7 +5,7 @@ from sqlalchemy import pool
 from sqlmodel import SQLModel
 
 from alembic import context
-from config import SETTINGS
+from src.core.config import SETTINGS
 
 # Import all models so they register on SQLModel.metadata
 from src.modules.auth.models import User  # noqa: F401

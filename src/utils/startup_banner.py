@@ -1,4 +1,4 @@
-from config import SETTINGS
+from src.core.config import SETTINGS
 
 
 # ANSI color codes for a bit of terminal flair.

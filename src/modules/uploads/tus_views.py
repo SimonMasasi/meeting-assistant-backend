@@ -21,7 +21,7 @@ import anyio
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlmodel import Session, select
 
-from config import SETTINGS
+from src.core.config import SETTINGS
 from src.modules.auth.models import User
 from src.shared.database import engine
 from src.shared.dependencies import get_current_user

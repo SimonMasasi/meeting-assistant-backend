@@ -99,7 +99,7 @@ class TestGetMeetings:
         user: User,
         second_user: User,
     ):
-        from app import app
+        from src.main import app
         from src.shared.dependencies import get_current_user
 
         # Create one meeting per user

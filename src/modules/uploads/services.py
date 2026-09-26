@@ -7,7 +7,7 @@ from src.utils.uploads.uploads_manager import UploadsManager
 from .models import TusUpload, UploadedFile
 from src.shared.dtos import SingleResponse, ResponseObjects
 
-from config import SETTINGS
+from src.core.config import SETTINGS
 from src.shared.database import engine
 from sqlmodel import Session, select
 from sqlalchemy.exc import IntegrityError
